@@ -1,3 +1,8 @@
+# Import built-in modules
+import os
+import platform
+import sys
+
 # Import third-party modules
 import nox
 
@@ -44,3 +49,139 @@ def docs_serve(session):
     session.install("-e", ".[docs]")
     session.install("sphinx-autobuild")
     session.run("sphinx-autobuild", "docs", "docs/_build/html", "--open-browser")
+
+
+@nox.session
+def build_wheels(session):
+    """Build wheels for the current platform using cibuildwheel.
+
+    This session builds wheels for the current Python version and platform
+    using cibuildwheel. Configuration is read from .cibuildwheel.toml.
+    """
+    # Install cibuildwheel and dependencies
+    session.log("Installing cibuildwheel and dependencies...")
+    session.install(
+        "cibuildwheel",
+        "wheel",
+        "setuptools>=42.0.0",
+        "setuptools_scm>=8.0.0",
+        "scikit-build-core>=0.5.0",
+        "pybind11>=2.10.0",
+        "cmake>=3.15.0",
+        "ninja",
+    )
+
+    # Determine current platform for cibuildwheel
+    system = platform.system().lower()
+    if system == "linux":
+        current_platform = "linux"
+    elif system == "darwin":
+        current_platform = "macos"
+    elif system == "windows":
+        current_platform = "windows"
+    else:
+        session.error(f"Unsupported platform: {system}")
+
+    # Set environment variables
+    env = {
+        "CIBW_BUILD_VERBOSITY": "3",
+        "CIBW_BUILD": f"cp{sys.version_info.major}{sys.version_info.minor}-*",
+    }
+
+    # Create output directory if it doesn't exist
+    os.makedirs("wheelhouse", exist_ok=True)
+
+    # On Windows, we need special handling
+    if current_platform == "windows":
+        session.log("Building wheels on Windows...")
+        try:
+            # Try using cibuildwheel first
+            session.run(
+                "python",
+                "-m",
+                "cibuildwheel",
+                "--platform",
+                current_platform,
+                "--output-dir",
+                "wheelhouse",
+                env=env,
+            )
+        except Exception as e:
+            session.log(f"cibuildwheel failed: {e}")
+            session.log("Falling back to pip wheel...")
+
+            # Try direct pip wheel as a fallback
+            session.run(
+                "pip",
+                "wheel",
+                ".",
+                "-w",
+                "wheelhouse",
+                "--no-deps",
+                "-v",
+            )
+    else:
+        # On other platforms, use cibuildwheel
+        session.log(f"Building wheels on {current_platform}...")
+        try:
+            session.run(
+                "python",
+                "-m",
+                "cibuildwheel",
+                "--platform",
+                current_platform,
+                "--output-dir",
+                "wheelhouse",
+                env=env,
+            )
+        except Exception as e:
+            session.log(f"cibuildwheel failed: {e}")
+            session.log("Falling back to pip wheel...")
+
+            # Try direct pip wheel as a fallback
+            session.run(
+                "pip",
+                "wheel",
+                ".",
+                "-w",
+                "wheelhouse",
+                "--no-deps",
+                "-v",
+            )
+
+    # List the built wheels
+    session.log("Built wheels:")
+    for wheel in os.listdir("wheelhouse"):
+        if wheel.endswith(".whl"):
+            session.log(f"  - {wheel}")
+
+
+@nox.session
+def verify_wheels(session):
+    """Verify the built wheels."""
+    session.install("wheel", "setuptools")
+
+    # Check if wheelhouse directory exists
+    if not os.path.exists("wheelhouse"):
+        session.error("No wheelhouse directory found. Run build_wheels first.")
+
+    # List and verify wheels
+    wheels = [f for f in os.listdir("wheelhouse") if f.endswith(".whl")]
+    if not wheels:
+        session.error("No wheels found in wheelhouse directory.")
+
+    session.log(f"Found {len(wheels)} wheels:")
+    for wheel in wheels:
+        session.log(f"  - {wheel}")
+
+        # Try to install the wheel
+        try:
+            with session.chdir("wheelhouse"):
+                session.run("pip", "install", wheel, "--force-reinstall")
+            session.log(f"Successfully installed {wheel}")
+        except Exception as e:
+            session.error(f"Failed to install {wheel}: {e}")
+
+    # Try to import the package
+    session.run("python", "-c", "import eacopy; print(f'eacopy version: {eacopy.__version__}')")
+    session.log("All wheels verified successfully!")
