@@ -1,44 +1,63 @@
-# Your Project Name
+# py-eacopy
 
 <div align="center">
 
-[![PyPI version](https://badge.fury.io/py/your-project-name.svg)](https://badge.fury.io/py/your-project-name)
-[![Build Status](https://github.com/username/your-project-name/workflows/Build%20and%20Release/badge.svg)](https://github.com/username/your-project-name/actions)
-[![Documentation Status](https://readthedocs.org/projects/your-project-name/badge/?version=latest)](https://your-project-name.readthedocs.io/en/latest/?badge=latest)
-[![Python Version](https://img.shields.io/pypi/pyversions/your-project-name.svg)](https://pypi.org/project/your-project-name/)
-[![License](https://img.shields.io/github/license/username/your-project-name.svg)](https://github.com/username/your-project-name/blob/main/LICENSE)
-[![Downloads](https://static.pepy.tech/badge/your-project-name)](https://pepy.tech/project/your-project-name)
+[![PyPI version](https://badge.fury.io/py/py-eacopy.svg)](https://badge.fury.io/py/py-eacopy)
+[![Build Status](https://github.com/loonghao/py-eacopy/workflows/Build%20and%20Release/badge.svg)](https://github.com/loonghao/py-eacopy/actions)
+[![Documentation Status](https://readthedocs.org/projects/py-eacopy/badge/?version=latest)](https://py-eacopy.readthedocs.io/en/latest/?badge=latest)
+[![Python Version](https://img.shields.io/pypi/pyversions/py-eacopy.svg)](https://pypi.org/project/py-eacopy/)
+[![License](https://img.shields.io/github/license/loonghao/py-eacopy.svg)](https://github.com/loonghao/py-eacopy/blob/main/LICENSE)
+[![Downloads](https://static.pepy.tech/badge/py-eacopy)](https://pepy.tech/project/py-eacopy)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Ruff](https://img.shields.io/badge/ruff-enabled-brightgreen)](https://github.com/astral-sh/ruff)
 
+**⚠️ WORK IN PROGRESS ⚠️**
+This project is currently under active development and not yet ready for production use.
+
 </div>
 
-Your project description
+Python bindings for EACopy, a high-performance file copy tool developed by Electronic Arts. This package provides direct access to EACopy's C++ functionality, offering superior performance for file copying operations.
 
 ## Features
 
-- Feature 1
-- Feature 2
-- Feature 3
+- High-performance file copying with direct C++ bindings
+- API compatible with Python's `shutil` module
+- Support for EACopyService for accelerated network file transfers
+- Cross-platform compatibility (Windows native, with fallbacks for other platforms)
+- Multi-threaded file operations
 
 ## Installation
 
 ```bash
-pip install your-project-name
+pip install py-eacopy
 ```
 
 Or with Poetry:
 
 ```bash
-poetry add your-project-name
+poetry add py-eacopy
 ```
 
 ## Usage
 
 ```python
-import your_project_name
+import eacopy
 
-# Add usage examples here
+# Copy a file (similar to shutil.copy)
+eacopy.copy("source.txt", "destination.txt")
+
+# Copy a file with metadata (similar to shutil.copy2)
+eacopy.copy2("source.txt", "destination.txt")
+
+# Copy a directory tree (similar to shutil.copytree)
+eacopy.copytree("source_dir", "destination_dir")
+
+# Use EACopyService for accelerated network transfers
+eacopy.copy_with_server("source_dir", "destination_dir", "server_address", port=31337)
+
+# Configure global settings
+eacopy.config.thread_count = 8  # Use 8 threads for copying
+eacopy.config.compression_level = 5  # Use compression level 5 for network transfers
 ```
 
 ## Development
@@ -46,12 +65,25 @@ import your_project_name
 ### Setup
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/your-project-name.git
-cd your-project-name
+# Clone the repository with submodules
+git clone https://github.com/loonghao/py-eacopy.git
+cd py-eacopy
+git submodule update --init --recursive
 
 # Install dependencies with Poetry
 poetry install
+```
+
+### Building from Source
+
+This project uses scikit-build-core to build the C++ extensions:
+
+```bash
+# Install build dependencies
+pip install scikit-build-core pybind11 cmake
+
+# Build the package
+python -m pip install -e .
 ```
 
 ### Testing
@@ -77,37 +109,49 @@ nox -s docs
 nox -s docs-serve
 ```
 
+## Dependencies
+
+- [EACopy](https://github.com/electronicarts/EACopy) - High-performance file copy tool by Electronic Arts
+- [pybind11](https://github.com/pybind/pybind11) - C++11 Python bindings
+
 ## License
 
-MIT
+BSD-3-Clause (same as EACopy)
 
-## GitHub Actions Configuration
+## CI/CD Configuration
 
-This template uses GitHub Actions for CI/CD. The following workflows are included:
+This project uses GitHub Actions for CI/CD with the following workflows:
 
-- **Build and Release**: Tests the package on multiple Python versions and operating systems, and publishes to PyPI when a new release is created.
+- **Build and Test**: Tests the package on multiple Python versions and operating systems.
+- **Release**: Builds and publishes wheels to PyPI when a new release is created.
 - **Documentation**: Builds and deploys documentation to GitHub Pages.
-- **Dependency Review**: Scans dependencies for security vulnerabilities.
-- **Scorecards**: Analyzes the security health of the project.
 
-The release workflow uses PyPI's trusted publishing, which means you don't need to set up any PyPI API tokens. Instead, you'll need to configure trusted publishing in your PyPI project settings once you've created your package. See [PyPI's documentation on trusted publishing](https://docs.pypi.org/trusted-publishers/) for more information.
+The release workflow uses cibuildwheel to build platform-specific wheels with the C++ extensions properly compiled for each platform.
 
 ### Release Process
 
 To create a new release:
 
-1. Update the version in `pyproject.toml`
+1. Update the version in `pyproject.toml` and `src/eacopy/__version__.py`
 2. Update the `CHANGELOG.md` with the new version and changes
 3. Commit and push the changes
-4. Create a new tag with the version number (e.g., `1.0.0`)
+4. Create a new tag with the version number (e.g., `0.1.0`)
 5. Push the tag to GitHub
 
 ```bash
 # Example release process
-git add pyproject.toml CHANGELOG.md
-git commit -m "Release 1.0.0"
-git tag 1.0.0
+git add pyproject.toml src/eacopy/__version__.py CHANGELOG.md
+git commit -m "Release 0.1.0"
+git tag 0.1.0
 git push && git push --tags
 ```
 
-The GitHub Actions workflow will automatically build and publish the package to PyPI.
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
