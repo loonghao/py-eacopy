@@ -1,0 +1,22 @@
+include LICENSE
+include README.md
+include README_zh.md
+include CHANGELOG.md
+include pyproject.toml
+include CMakeLists.txt
+
+recursive-include src/eacopy *.py
+recursive-include src/binding *.cpp *.h
+recursive-include extern/EACopy/include *.h
+
+recursive-include docs *.rst *.py
+recursive-include examples *.py
+
+prune docs/_build
+prune docs/_static
+prune docs/_templates
+prune tests/__pycache__
+prune src/eacopy/__pycache__
+prune .github
+prune .vscode
+prune .idea
