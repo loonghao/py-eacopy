@@ -1,27 +1,46 @@
-# Import built-in modules
-import os
-import sys
-
 # Import third-party modules
 import nox
 
 
-ROOT = os.path.dirname(__file__)
-
-# Ensure maya_umbrella is importable.
-if ROOT not in sys.path:
-    sys.path.append(ROOT)
-
-# Import third-party modules
-from nox_actions import codetest  # noqa: E402
-from nox_actions import docs  # noqa: E402
-from nox_actions import lint  # noqa: E402
-from nox_actions import release  # noqa: E402
+@nox.session
+def lint(session):
+    """Run linting checks."""
+    session.install("ruff", "mypy", "isort")
+    session.run("mypy", "--install-types", "--non-interactive")
+    session.run("ruff", "check", ".")
+    session.run("ruff", "format", "--check", ".")
+    session.run("isort", "--check-only", ".")
+    session.run("mypy", "src/eacopy", "--strict")
 
 
-nox.session(lint.lint, name="lint")
-nox.session(lint.lint_fix, name="lint-fix")
-nox.session(codetest.pytest, name="pytest")
-nox.session(release.build_exe, name="build-exe")
-nox.session(docs.docs, name="docs")
-nox.session(docs.docs_serve, name="docs-serve")
+@nox.session
+def lint_fix(session):
+    """Fix linting issues."""
+    session.install("ruff", "mypy", "isort")
+    session.run("ruff", "check", "--fix", ".")
+    session.run("ruff", "format", ".")
+    session.run("isort", ".")
+
+
+@nox.session
+def pytest(session):
+    """Run tests."""
+    session.install("pytest", "pytest-cov")
+    session.install("-e", ".")
+    session.run("pytest", "tests/", "--cov=eacopy", "--cov-report=xml:coverage.xml", "--cov-report=term-missing")
+
+
+@nox.session
+def docs(session):
+    """Build documentation."""
+    session.install("-e", ".[docs]")
+    session.chdir("docs")
+    session.run("make", "html", external=True)
+
+
+@nox.session
+def docs_serve(session):
+    """Build and serve documentation with live reloading."""
+    session.install("-e", ".[docs]")
+    session.install("sphinx-autobuild")
+    session.run("sphinx-autobuild", "docs", "docs/_build/html", "--open-browser")
