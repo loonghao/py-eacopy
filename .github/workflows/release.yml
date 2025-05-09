@@ -1,16 +1,13 @@
 name: Build and Release
 
-# Permissions needed for this workflow
-permissions:
-  contents: write    # For creating releases
-  pull-requests: write  # For commenting on PRs
-  id-token: write   # For PyPI trusted publishing
-
 on:
+  # Only trigger on tag push, not on branch push
+  # This prevents duplicate builds when merging to main
+  # The bumpversion.yml workflow will create tags that trigger this workflow
   push:
     tags:
+      - 'v*'
       - '[0-9]+.[0-9]+.[0-9]+*'
-    branches: [ main ]
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -56,142 +53,433 @@ on:
   workflow_dispatch:
     inputs:
       fast-mode:
-        description: 'Skip building wheels and only run tests'
+        description: 'Fast mode (reduced build variants)'
         required: false
-        default: false
-        type: boolean
-      python-version:
-        description: 'Python version to use for testing'
-        required: false
-        default: '3.10'
-        type: string
-      os:
-        description: 'OS to run tests on'
-        required: false
-        default: 'ubuntu-latest'
+        default: 'false'
         type: choice
-        options:
-          - ubuntu-latest
-          - windows-latest
-          - macos-latest
+        options: ['true', 'false']
+      test-wheels:
+        description: 'Test wheels compatibility'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['true', 'false']
+# Permissions needed for this workflow
+permissions:
+  contents: write    # For creating releases and pushing to gh-pages
+  pull-requests: write  # For commenting on PRs
+  pages: write      # For GitHub Pages deployment
+  id-token: write   # For PyPI trusted publishing
+
+# Concurrency control
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Global variables
+env:
+  # Common settings
+  CIBW_CONFIG_FILE: "{package}/.cibuildwheel.toml"
+  CIBW_BUILD_VERBOSITY: 3
+  CCACHE_MAX_SIZE: 2G
 
 jobs:
-  # Build and test the package
-  build-and-test:
-    name: Build and test on ${{ matrix.os }} with Python ${{ matrix.python-version }}
-    runs-on: ${{ matrix.os }}
+  # Build source distribution
+  build-sdist:
+    name: Build source distribution
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.fast-mode == 'true') && (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-python-build
+        with:
+          python-version: '3.10'
+
+      # Install system dependencies
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build gcc g++
+        shell: bash
+
+      # Set up ccache
+      - uses: ./.github/actions/setup-ccache
+        with:
+          platform: sdist
+          python: cp310
+          max-size: ${{ env.CCACHE_MAX_SIZE }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install build numpy pybind11 scikit-build-core cmake setuptools_scm commitizen
+
+      - name: Set version using commitizen
+        run: |
+          # Get version information
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            echo "Building with version from tag: $VERSION"
+            export SETUPTOOLS_SCM_PRETEND_VERSION="$VERSION"
+
+            # Use commitizen to ensure all version files are updated
+            cz version --project -- "$VERSION"
+
+            # Ensure the version is properly exported for all build steps
+            echo "SETUPTOOLS_SCM_PRETEND_VERSION=$VERSION" >> $GITHUB_ENV
+
+            echo "Version files updated with $VERSION"
+          else
+            # For non-tag builds, get the version from commitizen
+            echo "No tag found, determining version from git..."
+            VERSION=$(cz version --project)
+            echo "Using version: $VERSION"
+
+            # Set environment variable for consistent version across build steps
+            export SETUPTOOLS_SCM_PRETEND_VERSION="$VERSION"
+          fi
+
+          # Show the version file content
+          echo "Version file content:"
+          cat src/py_eacopy/__version__.py
+
+      - name: Build SDist
+        run: |
+          # Build the source distribution
+          python -m build --sdist
+
+      - name: Verify SDist
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install dist/*.tar.gz
+          python -c "import py_eacopy; print(f'Installed py_eacopy version: {py_eacopy.__version__}, eacopy version: {py_eacopy.__eacopy_version__}')"
+
+      # Only run tests in PR context
+      - name: Test SDist
+        if: github.event_name == 'pull_request'
+        run: |
+          python -m pip install pytest pytest-cov numpy
+          python -m pytest tests --cov=py_eacopy --cov-report=term --cov-report=xml -v
+
+      # Only upload coverage in PR context
+      - name: Upload coverage reports to Codecov
+        if: github.event_name == 'pull_request'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          fail_ci_if_error: false
+          verbose: true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  # Build and test wheels for Linux
+  build-wheels-linux:
+    name: Build ${{ matrix.python }} wheels on Linux
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.fast-mode == 'true') && (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
-
+        python: [cp38, cp39, cp310, cp311, cp312]
+        include:
+          - python: cp38
+            python-version: '3.8'
+          - python: cp39
+            python-version: '3.9'
+          - python: cp310
+            python-version: '3.10'
+          - python: cp311
+            python-version: '3.11'
+          - python: cp312
+            python-version: '3.12'
 
     steps:
       - uses: actions/checkout@v4
         with:
+          submodules: recursive
           fetch-depth: 0
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      # Cache Eigen library
+      - uses: ./.github/actions/cache-eigen
+        with:
+          platform: Linux
+
+      # Set up ccache
+      - uses: ./.github/actions/setup-ccache
+        with:
+          platform: Linux
+          python: ${{ matrix.python }}
+          max-size: ${{ env.CCACHE_MAX_SIZE }}
+
+      # Build wheels using cibuildwheel action
+      - uses: ./.github/actions/build-wheels
+        with:
+          platform: linux
+          python: ${{ matrix.python }}
+          config-file: ${{ env.CIBW_CONFIG_FILE }}
+          build-verbosity: ${{ env.CIBW_BUILD_VERBOSITY }}
+        env:
+          # Get version from tag if available
+          SETUPTOOLS_SCM_PRETEND_VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+
+      # Upload wheels
+      - uses: ./.github/actions/upload-wheels
+        with:
+          platform: linux
+          python: ${{ matrix.python }}
+
+      # Test the wheel immediately after building
+      - uses: ./.github/actions/setup-python-build
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-          cache-dependency-path: |
-            **/pyproject.toml
-            **/requirements*.txt
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          # 安装特定版本的依赖，避免兼容性问题
-          pip install build>=1.0.0 scikit-build-core>=0.5.0 pybind11>=2.10.0 pytest>=6.0.0 pytest-cov>=2.12.0 ruff<0.0.270
-          # 安装项目依赖
-          pip install -e .
-
-      - name: Lint with ruff
-        run: |
-          ruff check .
-
-      - name: Test with pytest
-        run: |
-          pytest tests/ --cov=eacopy
-
-      - name: Build package
-        run: |
-          # 使用 scikit-build-core 构建包
-          python -m build --no-isolation
-          # 列出构建的包
-          ls -la dist/
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - uses: ./.github/actions/test-wheel
         with:
-          name: dist-${{ matrix.os }}-${{ matrix.python-version }}
-          path: dist/
-          if-no-files-found: error
+          platform: linux
 
-  # Release to PyPI
-  release-to-pypi:
+  # Build and test wheels for Windows
+  build-wheels-windows:
+    name: Build ${{ matrix.python }} wheels on Windows
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.fast-mode == 'true') && (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: [cp38, cp39, cp310, cp311, cp312]
+        include:
+          - python: cp38
+            python-version: '3.8'
+          - python: cp39
+            python-version: '3.9'
+          - python: cp310
+            python-version: '3.10'
+          - python: cp311
+            python-version: '3.11'
+          - python: cp312
+            python-version: '3.12'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      # Cache Eigen library
+      - uses: ./.github/actions/cache-eigen
+        with:
+          platform: Windows
+
+      # Set up ccache
+      - uses: ./.github/actions/setup-ccache
+        with:
+          platform: Windows
+          python: ${{ matrix.python }}
+          max-size: ${{ env.CCACHE_MAX_SIZE }}
+
+      # Build wheels using cibuildwheel action
+      - uses: ./.github/actions/build-wheels
+        with:
+          platform: windows
+          python: ${{ matrix.python }}
+          config-file: ${{ env.CIBW_CONFIG_FILE }}
+          build-verbosity: ${{ env.CIBW_BUILD_VERBOSITY }}
+        env:
+          # Get version from tag if available
+          SETUPTOOLS_SCM_PRETEND_VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+
+      # Upload wheels
+      - uses: ./.github/actions/upload-wheels
+        with:
+          platform: windows
+          python: ${{ matrix.python }}
+
+      # Test the wheel immediately after building
+      - uses: ./.github/actions/setup-python-build
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: ./.github/actions/test-wheel
+        with:
+          platform: windows
+
+  # Build and test wheels for macOS Intel
+  build-wheels-macos:
+    name: Build ${{ matrix.python }} wheels on macOS Intel
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.fast-mode == 'true') && (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') }}
+    runs-on: macos-13
+    strategy:
+      fail-fast: false
+      matrix:
+        python: [cp38, cp39, cp310, cp311, cp312]
+        include:
+          - python: cp38
+            python-version: '3.8'
+          - python: cp39
+            python-version: '3.9'
+          - python: cp310
+            python-version: '3.10'
+          - python: cp311
+            python-version: '3.11'
+          - python: cp312
+            python-version: '3.12'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      # Cache Eigen library
+      - uses: ./.github/actions/cache-eigen
+        with:
+          platform: macOS-Intel
+
+      # Set up ccache
+      - uses: ./.github/actions/setup-ccache
+        with:
+          platform: macOS-Intel
+          python: ${{ matrix.python }}
+          max-size: ${{ env.CCACHE_MAX_SIZE }}
+
+      # Build wheels using cibuildwheel action
+      - uses: ./.github/actions/build-wheels
+        with:
+          platform: macos-intel
+          python: ${{ matrix.python }}
+          config-file: ${{ env.CIBW_CONFIG_FILE }}
+          build-verbosity: ${{ env.CIBW_BUILD_VERBOSITY }}
+        env:
+          # Get version from tag if available
+          SETUPTOOLS_SCM_PRETEND_VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+
+      # Upload wheels
+      - uses: ./.github/actions/upload-wheels
+        with:
+          platform: macos-intel
+          python: ${{ matrix.python }}
+
+      # Test the wheel immediately after building
+      - uses: ./.github/actions/setup-python-build
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: ./.github/actions/test-wheel
+        with:
+          platform: macos
+
+  # Build and test wheels for macOS Apple Silicon
+  build-wheels-macos-arm:
+    name: Build ${{ matrix.python }} wheels on macOS ARM
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.fast-mode == 'true') && (github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') }}
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        python: [cp39, cp310, cp311, cp312]
+        # Note: cp38 is excluded as it's not available on macOS ARM
+        include:
+          - python: cp39
+            python-version: '3.9'
+          - python: cp310
+            python-version: '3.10'
+          - python: cp311
+            python-version: '3.11'
+          - python: cp312
+            python-version: '3.12'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      # Cache Eigen library
+      - uses: ./.github/actions/cache-eigen
+        with:
+          platform: macOS-ARM
+
+      # Set up ccache
+      - uses: ./.github/actions/setup-ccache
+        with:
+          platform: macOS-ARM
+          python: ${{ matrix.python }}
+          max-size: ${{ env.CCACHE_MAX_SIZE }}
+
+      # Build wheels using cibuildwheel action
+      - uses: ./.github/actions/build-wheels
+        with:
+          platform: macos-arm
+          python: ${{ matrix.python }}
+          config-file: ${{ env.CIBW_CONFIG_FILE }}
+          build-verbosity: ${{ env.CIBW_BUILD_VERBOSITY }}
+        env:
+          # Get version from tag if available
+          SETUPTOOLS_SCM_PRETEND_VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+
+      # Upload wheels
+      - uses: ./.github/actions/upload-wheels
+        with:
+          platform: macos-arm
+          python: ${{ matrix.python }}
+
+      # Test the wheel immediately after building
+      - uses: ./.github/actions/setup-python-build
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: ./.github/actions/test-wheel
+        with:
+          platform: macos
+
+  # Create GitHub Release and publish to PyPI
+  release:
     name: Release
-    needs: [build-and-test]
+    needs: [build-wheels-linux, build-wheels-windows, build-wheels-macos, build-wheels-macos-arm, build-sdist]
     if: github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
-
+    environment:
+      name: release
+      url: https://pypi.org/p/py-eacopy
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      # Download all artifacts
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
 
-      # List all artifacts
-      - name: List all artifacts
-        run: find dist -type f | sort
-
-      # Generate release notes from changelog
       - name: Generate Release Notes
-        if: startsWith(github.ref, 'refs/tags/')
-        id: release-notes
+        id: release_notes
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
-          # No need to remove 'v' prefix as we're using numeric versioning
-
-          # Try to find the version in CHANGELOG.md
-          if [ -f CHANGELOG.md ]; then
-            CHANGES=$(grep -A 100 "## \[$VERSION\]" CHANGELOG.md | grep -B 100 -m 2 "^## " | grep -v "^## \[$VERSION\]" | grep -v "^## " | sed '/^$/d')
-          else
-            CHANGES="No changelog found for version $VERSION"
-          fi
-
-          # Load template and replace variables
+          CHANGES=$(grep -A 100 "## $VERSION" CHANGELOG.md | grep -B 100 -m 2 "^## " | grep -v "^## $VERSION" | grep -v "^## " | sed '/^$/d')
           TEMPLATE=$(cat .github/release-template.md)
           TEMPLATE="${TEMPLATE//\$RELEASE_VERSION/$VERSION}"
           TEMPLATE="${TEMPLATE//\$CHANGES/$CHANGES}"
-
-          # Create a temporary file for the release notes
-          echo "$TEMPLATE" > release-notes.md
+          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$TEMPLATE" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
         shell: bash
 
       # Update release notes
       - name: Update Release Notes
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          body_path: release-notes.md
+          body: ${{ steps.release_notes.outputs.release_notes }}
           files: dist/*
           fail_on_unmatched_files: true
         env:
