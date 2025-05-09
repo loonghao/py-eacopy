@@ -1,0 +1,32 @@
+name: 'Setup ccache'
+description: 'Sets up ccache for faster builds'
+
+inputs:
+  platform:
+    description: 'Platform (Linux, Windows, macOS-Intel, macOS-ARM)'
+    required: true
+    default: 'Linux'
+  python:
+    description: 'Python version (cp38, cp39, etc.)'
+    required: true
+    default: 'cp310'
+  max-size:
+    description: 'Maximum size of ccache'
+    required: false
+    default: '2G'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        key: ${{ inputs.platform }}-ccache-${{ inputs.python }}-${{ hashFiles('**/*.cpp', '**/*.h', 'CMakeLists.txt', 'cmake/**') }}
+        restore-keys: |
+          ${{ inputs.platform }}-ccache-${{ inputs.python }}-
+          ${{ inputs.platform }}-ccache-
+        max-size: ${{ inputs.max-size }}
+
+    - name: Clear ccache stats
+      run: ccache -z
+      shell: bash
