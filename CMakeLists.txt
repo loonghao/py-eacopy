@@ -22,6 +22,8 @@ message(STATUS "Found pybind11 v${pybind11_VERSION}")
 # Add EACopy
 set(EACOPY_BUILD_TESTS OFF CACHE BOOL "Build EACopy tests")
 set(EACOPY_BUILD_SERVICE OFF CACHE BOOL "Build EACopy service")
+# Set CMake policy version minimum to handle older CMake code in dependencies
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "Minimum CMake policy version")
 add_subdirectory(extern/EACopy EXCLUDE_FROM_ALL)
 
 # Include directories
