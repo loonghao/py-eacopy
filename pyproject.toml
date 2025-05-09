@@ -76,15 +76,15 @@ Issues = "https://github.com/loonghao/py-eacopy/issues"
 Changelog = "https://github.com/loonghao/py-eacopy/blob/main/CHANGELOG.md"
 
 [project.scripts]
-eacopy = "eacopy.cli:main"
+eacopy = "py_eacopy.cli:main"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.1.0"
+version = "0.0.1.dev0"
 tag_format = "$version"
 version_files = [
     "pyproject.toml:version",
-    "src/eacopy/__version__.py",
+    "src/py_eacopy/__version__.py",
 ]
 
 [tool.pytest.ini_options]
@@ -94,7 +94,7 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 
 [tool.coverage.run]
-source = ["eacopy"]
+source = ["py_eacopy"]
 branch = true
 
 [tool.coverage.report]
@@ -181,7 +181,7 @@ line_length = 120
 force_sort_within_sections = true
 force_single_line = true
 sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
-known_first_party = ["eacopy"]
+known_first_party = ["py_eacopy"]
 
 [tool.nox]
 sessions = ["lint", "pytest"]
@@ -195,7 +195,7 @@ commands = [
     "ruff check .",
     "ruff format --check .",
     "isort --check-only .",
-    "mypy src/eacopy --strict"
+    "mypy src/py_eacopy --strict"
 ]
 
 [tool.nox.session.lint_fix]
@@ -209,15 +209,15 @@ commands = [
 [tool.nox.session.pytest]
 deps = ["pytest", "pytest-cov"]
 commands = [
-    "pytest tests/ --cov=eacopy --cov-report=xml:coverage.xml --cov-report=term-missing"
+    "pytest tests/ --cov=py_eacopy --cov-report=xml:coverage.xml --cov-report=term-missing"
 ]
 
 [tool.scikit-build]
 # Basic configuration
-wheel.packages = ["src/eacopy"]
+wheel.packages = ["src/py_eacopy"]
 wheel.exclude = ["tests/*"]
 wheel.expand-macos-universal-tags = false
-sdist.include = ["src/eacopy/*", "src/binding/*", "CMakeLists.txt", "LICENSE", "README.md", "extern/EACopy/*"]
+sdist.include = ["src/py_eacopy/*", "src/binding/*", "CMakeLists.txt", "LICENSE", "README.md", "extern/EACopy/*"]
 sdist.exclude = ["tests/data/*"]
 # Enable experimental features
 experimental = true
@@ -231,6 +231,8 @@ tag_regex = "^(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+)(?P<dev>-[a-zA-Z0-9]+)?$"
 local_scheme = "no-local-version"
 # Don't use dev0 suffix for non-tagged versions to avoid metadata mismatches
 version_scheme = "release-branch-semver"
+# Fallback version when no Git tag is available
+fallback_version = "0.0.1.dev0"
 
 [tool.scikit-build.cmake]
 version = ">=3.15"
@@ -246,7 +248,7 @@ SKBUILD_SOABI = "OFF"
 
 [tool.semantic_release]
 version_variable = [
-    "src/eacopy/__version__.py:__version__",
+    "src/py_eacopy/__version__.py:__version__",
     "pyproject.toml:version"
 ]
 branch = "main"
