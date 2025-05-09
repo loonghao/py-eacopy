@@ -148,11 +148,12 @@ target_include_directories(lzma PUBLIC
 
 # Add xdelta library
 add_library(xdelta STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/EACopy/external/xdelta/xdelta3.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/extern/EACopy/external/xdelta/xdelta3/xdelta3.c
 )
 
 target_include_directories(xdelta PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/extern/EACopy/external/xdelta
+    ${CMAKE_CURRENT_SOURCE_DIR}/extern/EACopy/external/xdelta/xdelta3
     ${CMAKE_CURRENT_SOURCE_DIR}/extern/EACopy/external/lzma/liblzma/api
 )
 
