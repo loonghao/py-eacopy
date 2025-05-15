@@ -80,7 +80,7 @@ eacopy = "py_eacopy.cli:main"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.0.1.dev0"
+version = "0.0.1"
 tag_format = "$version"
 version_files = [
     "pyproject.toml:version",
@@ -237,14 +237,21 @@ fallback_version = "0.0.1.dev0"
 [tool.scikit-build.cmake]
 version = ">=3.15"
 build-type = "Release"
+# Platform-specific configuration is handled in CMakeLists.txt
 
 [tool.scikit-build.cmake.define]
-PYTHON_LIMITED_API = "OFF"
+# Ensure position-independent code for shared libraries
 CMAKE_POSITION_INDEPENDENT_CODE = "ON"
-# Ensure symbols are properly exported on Windows
-CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS = "ON"
+# Use dynamic runtime library to match Python's expectations
+CMAKE_MSVC_RUNTIME_LIBRARY = "MultiThreadedDLL"
+# Disable limited API for maximum compatibility
+PYTHON_LIMITED_API = "OFF"
+# We handle symbol export manually in CMakeLists.txt
+CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS = "OFF"
 # Disable ABI3 mode
 SKBUILD_SOABI = "OFF"
+# Use pybind11's default Python handling
+PYBIND11_FINDPYTHON = "ON"
 
 [tool.semantic_release]
 version_variable = [
