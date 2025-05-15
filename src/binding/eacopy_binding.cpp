@@ -12,6 +12,12 @@
 
 namespace py = pybind11;
 namespace fs = std::filesystem;
+using namespace eacopy; // Use the eacopy namespace
+
+// Define EACopy flags
+#define EACOPY_COPY_DATA eacopy::FileFlags_Data
+#define EACOPY_COPY_ATTRIBUTES eacopy::FileFlags_Attributes
+#define EACOPY_COPY_TIMESTAMPS eacopy::FileFlags_Timestamps
 
 // Wrapper class for EACopy functionality
 class EACopy {
@@ -38,12 +44,19 @@ public:
         }
 
         // Use EACopy to copy the file
-        EACopyClient client;
-        client.SetSource(src_path.string().c_str());
-        client.SetDestination(dst_path.string().c_str());
-        client.SetCopyFlags(EACOPY_COPY_DATA);
-        
-        if (!client.DoCopy()) {
+        eacopy::ClientSettings settings;
+        // Convert std::string to std::wstring for paths
+        std::wstring wsrc_path(src_path.string().begin(), src_path.string().end());
+        std::wstring wdst_path(dst_path.string().begin(), dst_path.string().end());
+        settings.sourceDirectory = wsrc_path;
+        settings.destDirectory = wdst_path;
+        settings.dirCopyFlags = EACOPY_COPY_DATA;
+
+        eacopy::Client client(settings);
+        eacopy::ClientStats stats;
+        eacopy::Log log;
+
+        if (client.process(log, stats) != 0) {
             throw std::runtime_error("Failed to copy file: " + src + " to " + dst);
         }
     }
@@ -73,12 +86,19 @@ public:
         }
 
         // Use EACopy to copy the file with metadata
-        EACopyClient client;
-        client.SetSource(src_path.string().c_str());
-        client.SetDestination(dst_path.string().c_str());
-        client.SetCopyFlags(EACOPY_COPY_DATA | EACOPY_COPY_ATTRIBUTES | EACOPY_COPY_TIMESTAMPS);
-        
-        if (!client.DoCopy()) {
+        eacopy::ClientSettings settings;
+        // Convert std::string to std::wstring for paths
+        std::wstring wsrc_path(src_path.string().begin(), src_path.string().end());
+        std::wstring wdst_path(dst_path.string().begin(), dst_path.string().end());
+        settings.sourceDirectory = wsrc_path;
+        settings.destDirectory = wdst_path;
+        settings.dirCopyFlags = EACOPY_COPY_DATA | EACOPY_COPY_ATTRIBUTES | EACOPY_COPY_TIMESTAMPS;
+
+        eacopy::Client client(settings);
+        eacopy::ClientStats stats;
+        eacopy::Log log;
+
+        if (client.process(log, stats) != 0) {
             throw std::runtime_error("Failed to copy file with metadata: " + src + " to " + dst);
         }
     }
@@ -108,19 +128,26 @@ public:
         }
 
         // Use EACopy to copy the file
-        EACopyClient client;
-        client.SetSource(src_path.string().c_str());
-        client.SetDestination(dst_path.string().c_str());
-        client.SetCopyFlags(EACOPY_COPY_DATA);
-        
-        if (!client.DoCopy()) {
+        eacopy::ClientSettings settings;
+        // Convert std::string to std::wstring for paths
+        std::wstring wsrc_path(src_path.string().begin(), src_path.string().end());
+        std::wstring wdst_path(dst_path.string().begin(), dst_path.string().end());
+        settings.sourceDirectory = wsrc_path;
+        settings.destDirectory = wdst_path;
+        settings.dirCopyFlags = EACOPY_COPY_DATA;
+
+        eacopy::Client client(settings);
+        eacopy::ClientStats stats;
+        eacopy::Log log;
+
+        if (client.process(log, stats) != 0) {
             throw std::runtime_error("Failed to copy file: " + src + " to " + dst);
         }
     }
 
     // Copy a directory tree
-    void copytree(const std::string& src, const std::string& dst, 
-                  bool symlinks = false, 
+    void copytree(const std::string& src, const std::string& dst,
+                  bool symlinks = false,
                   bool ignore_dangling_symlinks = false,
                   bool dirs_exist_ok = false) {
         fs::path src_path(src);
@@ -150,20 +177,27 @@ public:
         }
 
         // Use EACopy to copy the directory tree
-        EACopyClient client;
-        client.SetSource(src_path.string().c_str());
-        client.SetDestination(dst_path.string().c_str());
-        client.SetCopyFlags(EACOPY_COPY_DATA | EACOPY_COPY_ATTRIBUTES | EACOPY_COPY_TIMESTAMPS);
-        client.SetRecursive(true);
-        
-        if (!client.DoCopy()) {
+        eacopy::ClientSettings settings;
+        // Convert std::string to std::wstring for paths
+        std::wstring wsrc_path(src_path.string().begin(), src_path.string().end());
+        std::wstring wdst_path(dst_path.string().begin(), dst_path.string().end());
+        settings.sourceDirectory = wsrc_path;
+        settings.destDirectory = wdst_path;
+        settings.dirCopyFlags = EACOPY_COPY_DATA | EACOPY_COPY_ATTRIBUTES | EACOPY_COPY_TIMESTAMPS;
+        settings.copySubdirDepth = -1; // -1 means unlimited depth
+
+        eacopy::Client client(settings);
+        eacopy::ClientStats stats;
+        eacopy::Log log;
+
+        if (client.process(log, stats) != 0) {
             throw std::runtime_error("Failed to copy directory tree: " + src + " to " + dst);
         }
     }
 
     // Copy with server
-    void copy_with_server(const std::string& src, const std::string& dst, 
-                         const std::string& server_addr, 
+    void copy_with_server(const std::string& src, const std::string& dst,
+                         const std::string& server_addr,
                          int port = 31337,
                          int compression_level = 0) {
         fs::path src_path(src);
@@ -178,21 +212,31 @@ public:
         if (!fs::is_directory(src_path)) {
             dst_dir = dst_path.parent_path();
         }
-        
+
         if (!dst_dir.empty() && !fs::exists(dst_dir)) {
             fs::create_directories(dst_dir);
         }
 
         // Use EACopy with server to copy
-        EACopyClient client;
-        client.SetSource(src_path.string().c_str());
-        client.SetDestination(dst_path.string().c_str());
-        client.SetCopyFlags(EACOPY_COPY_DATA | EACOPY_COPY_ATTRIBUTES | EACOPY_COPY_TIMESTAMPS);
-        client.SetRecursive(fs::is_directory(src_path));
-        client.SetServer(server_addr.c_str(), port);
-        client.SetCompressionLevel(compression_level);
-        
-        if (!client.DoCopy()) {
+        eacopy::ClientSettings settings;
+        // Convert std::string to std::wstring for paths and server address
+        std::wstring wsrc_path(src_path.string().begin(), src_path.string().end());
+        std::wstring wdst_path(dst_path.string().begin(), dst_path.string().end());
+        std::wstring wserver_addr(server_addr.begin(), server_addr.end());
+        settings.sourceDirectory = wsrc_path;
+        settings.destDirectory = wdst_path;
+        settings.dirCopyFlags = EACOPY_COPY_DATA | EACOPY_COPY_ATTRIBUTES | EACOPY_COPY_TIMESTAMPS;
+        settings.copySubdirDepth = fs::is_directory(src_path) ? -1 : 0;
+        settings.serverAddress = wserver_addr;
+        settings.serverPort = port;
+        settings.compressionLevel = compression_level;
+        settings.useServer = eacopy::UseServer_Required;
+
+        eacopy::Client client(settings);
+        eacopy::ClientStats stats;
+        eacopy::Log log;
+
+        if (client.process(log, stats) != 0) {
             throw std::runtime_error("Failed to copy with server: " + src + " to " + dst);
         }
     }
@@ -214,16 +258,16 @@ void copy2(const std::string& src, const std::string& dst) {
     eacopy.copy2(src, dst);
 }
 
-void copytree(const std::string& src, const std::string& dst, 
-              bool symlinks = false, 
+void copytree(const std::string& src, const std::string& dst,
+              bool symlinks = false,
               bool ignore_dangling_symlinks = false,
               bool dirs_exist_ok = false) {
     EACopy eacopy;
     eacopy.copytree(src, dst, symlinks, ignore_dangling_symlinks, dirs_exist_ok);
 }
 
-void copy_with_server(const std::string& src, const std::string& dst, 
-                     const std::string& server_addr, 
+void copy_with_server(const std::string& src, const std::string& dst,
+                     const std::string& server_addr,
                      int port = 31337,
                      int compression_level = 0) {
     EACopy eacopy;
@@ -235,47 +279,47 @@ void init_eacopy_binding(py::module& m) {
     // Bind the EACopy class
     py::class_<EACopy>(m, "EACopy")
         .def(py::init<>())
-        .def("copyfile", &EACopy::copyfile, 
+        .def("copyfile", &EACopy::copyfile,
              py::arg("src"), py::arg("dst"),
              "Copy file content from src to dst")
-        .def("copy", &EACopy::copy, 
+        .def("copy", &EACopy::copy,
              py::arg("src"), py::arg("dst"),
              "Copy file from src to dst, preserving file content but not metadata")
-        .def("copy2", &EACopy::copy2, 
+        .def("copy2", &EACopy::copy2,
              py::arg("src"), py::arg("dst"),
              "Copy file from src to dst, preserving file content and metadata")
-        .def("copytree", &EACopy::copytree, 
-             py::arg("src"), py::arg("dst"), 
-             py::arg("symlinks") = false, 
+        .def("copytree", &EACopy::copytree,
+             py::arg("src"), py::arg("dst"),
+             py::arg("symlinks") = false,
              py::arg("ignore_dangling_symlinks") = false,
              py::arg("dirs_exist_ok") = false,
              "Recursively copy a directory tree from src to dst")
-        .def("copy_with_server", &EACopy::copy_with_server, 
-             py::arg("src"), py::arg("dst"), 
-             py::arg("server_addr"), 
+        .def("copy_with_server", &EACopy::copy_with_server,
+             py::arg("src"), py::arg("dst"),
+             py::arg("server_addr"),
              py::arg("port") = 31337,
              py::arg("compression_level") = 0,
              "Copy file or directory using EACopyService for acceleration");
 
     // Bind standalone functions
-    m.def("copyfile", &copyfile, 
+    m.def("copyfile", &copyfile,
           py::arg("src"), py::arg("dst"),
           "Copy file content from src to dst");
-    m.def("copy", &copy, 
+    m.def("copy", &copy,
           py::arg("src"), py::arg("dst"),
           "Copy file from src to dst, preserving file content but not metadata");
-    m.def("copy2", &copy2, 
+    m.def("copy2", &copy2,
           py::arg("src"), py::arg("dst"),
           "Copy file from src to dst, preserving file content and metadata");
-    m.def("copytree", &copytree, 
-          py::arg("src"), py::arg("dst"), 
-          py::arg("symlinks") = false, 
+    m.def("copytree", &copytree,
+          py::arg("src"), py::arg("dst"),
+          py::arg("symlinks") = false,
           py::arg("ignore_dangling_symlinks") = false,
           py::arg("dirs_exist_ok") = false,
           "Recursively copy a directory tree from src to dst");
-    m.def("copy_with_server", &copy_with_server, 
-          py::arg("src"), py::arg("dst"), 
-          py::arg("server_addr"), 
+    m.def("copy_with_server", &copy_with_server,
+          py::arg("src"), py::arg("dst"),
+          py::arg("server_addr"),
           py::arg("port") = 31337,
           py::arg("compression_level") = 0,
           "Copy file or directory using EACopyService for acceleration");

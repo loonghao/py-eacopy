@@ -1,187 +1,106 @@
 # Import built-in modules
 import os
-import platform
 import sys
 
 # Import third-party modules
 import nox
 
+# Configure nox
+nox.options.reuse_existing_virtualenvs = True
+nox.options.error_on_missing_interpreters = False
+# Enable pip cache to speed up dependency installation
+os.environ["PIP_NO_CACHE_DIR"] = "0"
 
-@nox.session
-def lint(session):
-    """Run linting checks."""
-    session.install("ruff", "mypy", "isort")
-    session.run("mypy", "--install-types", "--non-interactive")
-    session.run("ruff", "check", ".")
-    session.run("ruff", "format", "--check", ".")
-    session.run("isort", "--check-only", ".")
-    session.run("mypy", "src/eacopy", "--strict")
+ROOT = os.path.dirname(__file__)
 
+# Ensure py_eacopy is importable.
+if ROOT not in sys.path:
+    sys.path.append(ROOT)
 
-@nox.session
-def lint_fix(session):
-    """Fix linting issues."""
-    session.install("ruff", "mypy", "isort")
-    session.run("ruff", "check", "--fix", ".")
-    session.run("ruff", "format", ".")
-    session.run("isort", ".")
+# Import local modules
+from nox_actions import build, codetest, docs, lint  # noqa: E402
 
 
-@nox.session
-def pytest(session):
-    """Run tests."""
-    session.install("pytest", "pytest-cov")
-    session.install("-e", ".")
-    session.run("pytest", "tests/", "--cov=eacopy", "--cov-report=xml:coverage.xml", "--cov-report=term-missing")
+def custom_build(session: nox.Session) -> None:
+    """Custom build for development with toolchain file."""
+    # Get the toolchain file path from environment
+    toolchain_file = os.environ.get("CMAKE_TOOLCHAIN_FILE", "")
+    if not toolchain_file:
+        session.log("Warning: CMAKE_TOOLCHAIN_FILE not set, using default build")
+        build.install(session)
+        return
 
+    session.log(f"Using custom toolchain file: {toolchain_file}")
 
-@nox.session
-def docs(session):
-    """Build documentation."""
-    session.install("-e", ".[docs]")
-    session.chdir("docs")
-    session.run("make", "html", external=True)
+    # Set environment variables for faster builds
+    env = {
+        # Enable parallel build with CMake
+        "CMAKE_BUILD_PARALLEL_LEVEL": str(os.cpu_count() or 4),
+        # Enable parallel compilation with MSVC
+        "CL": "/MP",
+        # Configure zstd options
+        "ZSTD_BUILD_PROGRAMS": "OFF",
+        "ZSTD_BUILD_SHARED": "OFF",
+        "ZSTD_BUILD_TESTS": "OFF",
+        "ZSTD_STATIC_LINKING_ONLY": "ON",
+        # Set toolchain file
+        "CMAKE_TOOLCHAIN_FILE": toolchain_file,
+    }
 
-
-@nox.session
-def docs_serve(session):
-    """Build and serve documentation with live reloading."""
-    session.install("-e", ".[docs]")
-    session.install("sphinx-autobuild")
-    session.run("sphinx-autobuild", "docs", "docs/_build/html", "--open-browser")
-
-
-@nox.session
-def build_wheels(session):
-    """Build wheels for the current platform using cibuildwheel.
-
-    This session builds wheels for the current Python version and platform
-    using cibuildwheel. Configuration is read from .cibuildwheel.toml.
-    """
-    # Install cibuildwheel and dependencies
-    session.log("Installing cibuildwheel and dependencies...")
+    # Install build dependencies
     session.install(
-        "cibuildwheel",
         "wheel",
         "setuptools>=42.0.0",
         "setuptools_scm>=8.0.0",
         "scikit-build-core>=0.5.0",
         "pybind11>=2.10.0",
         "cmake>=3.15.0",
-        "ninja",
     )
 
-    # Determine current platform for cibuildwheel
-    system = platform.system().lower()
-    if system == "linux":
-        current_platform = "linux"
-    elif system == "darwin":
-        current_platform = "macos"
-    elif system == "windows":
-        current_platform = "windows"
-    else:
-        session.error(f"Unsupported platform: {system}")
+    # Clean build directory if it exists
+    if os.path.exists("_skbuild"):
+        session.log("Cleaning previous build directory...")
+        import shutil
+        shutil.rmtree("_skbuild")
 
-    # Set environment variables
-    env = {
-        "CIBW_BUILD_VERBOSITY": "3",
-        "CIBW_BUILD": f"cp{sys.version_info.major}{sys.version_info.minor}-*",
-    }
+    # Build in development mode with custom toolchain
+    session.log("Building in development mode with custom toolchain...")
 
-    # Create output directory if it doesn't exist
-    os.makedirs("wheelhouse", exist_ok=True)
+    config_settings = [
+        "--config-settings=cmake.define.CMAKE_BUILD_TYPE=Release",
+        "--config-settings=cmake.define.ZSTD_BUILD_PROGRAMS=OFF",
+        "--config-settings=cmake.define.ZSTD_BUILD_SHARED=OFF",
+        "--config-settings=cmake.define.ZSTD_BUILD_TESTS=OFF",
+        "--config-settings=cmake.define.ZSTD_STATIC_LINKING_ONLY=ON",
+        f"--config-settings=cmake.define.CMAKE_TOOLCHAIN_FILE={toolchain_file}",
+    ]
 
-    # On Windows, we need special handling
-    if current_platform == "windows":
-        session.log("Building wheels on Windows...")
-        try:
-            # Try using cibuildwheel first
-            session.run(
-                "python",
-                "-m",
-                "cibuildwheel",
-                "--platform",
-                current_platform,
-                "--output-dir",
-                "wheelhouse",
-                env=env,
-            )
-        except Exception as e:
-            session.log(f"cibuildwheel failed: {e}")
-            session.log("Falling back to pip wheel...")
+    session.run(
+        "pip",
+        "install",
+        "-e",
+        ".",
+        *config_settings,
+        env=env,
+    )
 
-            # Try direct pip wheel as a fallback
-            session.run(
-                "pip",
-                "wheel",
-                ".",
-                "-w",
-                "wheelhouse",
-                "--no-deps",
-                "-v",
-            )
-    else:
-        # On other platforms, use cibuildwheel
-        session.log(f"Building wheels on {current_platform}...")
-        try:
-            session.run(
-                "python",
-                "-m",
-                "cibuildwheel",
-                "--platform",
-                current_platform,
-                "--output-dir",
-                "wheelhouse",
-                env=env,
-            )
-        except Exception as e:
-            session.log(f"cibuildwheel failed: {e}")
-            session.log("Falling back to pip wheel...")
-
-            # Try direct pip wheel as a fallback
-            session.run(
-                "pip",
-                "wheel",
-                ".",
-                "-w",
-                "wheelhouse",
-                "--no-deps",
-                "-v",
-            )
-
-    # List the built wheels
-    session.log("Built wheels:")
-    for wheel in os.listdir("wheelhouse"):
-        if wheel.endswith(".whl"):
-            session.log(f"  - {wheel}")
+    session.log("Custom build completed successfully!")
+    session.log("You can now import the package in Python: import eacopy")
 
 
-@nox.session
-def verify_wheels(session):
-    """Verify the built wheels."""
-    session.install("wheel", "setuptools")
-
-    # Check if wheelhouse directory exists
-    if not os.path.exists("wheelhouse"):
-        session.error("No wheelhouse directory found. Run build_wheels first.")
-
-    # List and verify wheels
-    wheels = [f for f in os.listdir("wheelhouse") if f.endswith(".whl")]
-    if not wheels:
-        session.error("No wheels found in wheelhouse directory.")
-
-    session.log(f"Found {len(wheels)} wheels:")
-    for wheel in wheels:
-        session.log(f"  - {wheel}")
-
-        # Try to install the wheel
-        try:
-            with session.chdir("wheelhouse"):
-                session.run("pip", "install", wheel, "--force-reinstall")
-            session.log(f"Successfully installed {wheel}")
-        except Exception as e:
-            session.error(f"Failed to install {wheel}: {e}")
-
-    # Try to import the package
-    session.run("python", "-c", "import eacopy; print(f'eacopy version: {eacopy.__version__}')")
-    session.log("All wheels verified successfully!")
+# Register nox sessions
+nox.session(lint.lint, name="lint", reuse_venv=True)
+nox.session(lint.lint_fix, name="lint-fix", reuse_venv=True)
+nox.session(codetest.pytest, name="pytest")
+nox.session(codetest.basic_test, name="basic-test")
+nox.session(docs.docs, name="docs")
+nox.session(docs.docs_serve, name="docs-serve")
+nox.session(build.build, name="build")
+nox.session(build.build_wheels, name="build-wheels")
+nox.session(build.verify_wheels, name="verify-wheels")
+nox.session(build.clean, name="clean")
+nox.session(codetest.build_test, name="build-test")
+nox.session(codetest.build_no_test, name="build-no-test")
+nox.session(codetest.coverage, name="coverage")
+nox.session(build.install, name="fast-build")
+nox.session(custom_build, name="custom-build")
