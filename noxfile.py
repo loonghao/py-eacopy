@@ -98,6 +98,31 @@ def pytest_skip_install(session: nox.Session) -> None:
     session.run("pytest", "tests", "--cov=py_eacopy", "--cov-report=term", "--cov-report=xml")
 
 
+def test_with_wheel(session: nox.Session) -> None:
+    """Install the wheel file and run tests.
+
+    This is useful for testing the built wheel without rebuilding.
+    """
+    import glob
+    import os
+
+    # Find the latest wheel file
+    wheel_files = glob.glob(os.path.join("wheelhouse", "py_eacopy-*.whl"))
+    if not wheel_files:
+        session.error("No wheel files found in wheelhouse directory")
+
+    # Sort by modification time (newest first)
+    latest_wheel = sorted(wheel_files, key=os.path.getmtime, reverse=True)[0]
+    session.log(f"Installing wheel file: {latest_wheel}")
+
+    # Install the wheel file and test dependencies
+    session.install(latest_wheel)
+    session.install("pytest", "pytest-cov")
+
+    # Run the tests
+    session.run("pytest", "tests", "--cov=py_eacopy", "--cov-report=term", "--cov-report=xml")
+
+
 # Register nox sessions
 nox.session(lint.lint, name="lint", reuse_venv=True)
 nox.session(lint.lint_fix, name="lint-fix", reuse_venv=True)
@@ -113,6 +138,8 @@ nox.session(build.clean, name="clean")
 nox.session(codetest.build_test, name="build-test")
 nox.session(codetest.build_no_test, name="build-no-test")
 nox.session(codetest.coverage, name="coverage")
+nox.session(codetest.build_test_coverage, name="build-test-coverage")
 nox.session(build.install, name="fast-build")
 nox.session(custom_build, name="custom-build")
 nox.session(pytest_skip_install, name="pytest_skip_install")
+nox.session(test_with_wheel, name="test-wheel")

@@ -207,11 +207,6 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      # Cache Eigen library
-      - uses: ./.github/actions/cache-eigen
-        with:
-          platform: Linux
-
       # Set up ccache
       - uses: ./.github/actions/setup-ccache
         with:
@@ -271,12 +266,6 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-
-      # Cache Eigen library
-      - uses: ./.github/actions/cache-eigen
-        with:
-          platform: Windows
-
       # Set up ccache
       - uses: ./.github/actions/setup-ccache
         with:
@@ -337,11 +326,6 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      # Cache Eigen library
-      - uses: ./.github/actions/cache-eigen
-        with:
-          platform: macOS-Intel
-
       # Set up ccache
       - uses: ./.github/actions/setup-ccache
         with:
@@ -400,11 +384,6 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-
-      # Cache Eigen library
-      - uses: ./.github/actions/cache-eigen
-        with:
-          platform: macOS-ARM
 
       # Set up ccache
       - uses: ./.github/actions/setup-ccache

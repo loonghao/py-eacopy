@@ -150,3 +150,70 @@ def coverage(session: nox.Session) -> None:
     # Generate HTML report
     session.run("coverage", "html")
     session.log("Coverage report generated in htmlcov/index.html")
+
+
+def build_test_coverage(session: nox.Session) -> None:
+    """Build the project, install the wheel, and run tests with coverage.
+
+    This command performs the following steps:
+    1. Build the project and create wheel files
+    2. Install the generated wheel file
+    3. Run tests with coverage reporting
+    """
+    # Step 1: Build the project
+    session.log("Step 1: Building the project...")
+
+    # Install build dependencies
+    retry_command(session, session.install, "build", "wheel", max_retries=3)
+
+    # Set environment variables for faster builds
+    env = {
+        # Enable parallel build with CMake
+        "CMAKE_BUILD_PARALLEL_LEVEL": str(os.cpu_count() or 4),
+        # Enable parallel compilation with MSVC
+        "CL": "/MP",
+        # Configure zstd options
+        "ZSTD_BUILD_PROGRAMS": "OFF",
+        "ZSTD_BUILD_SHARED": "OFF",
+        "ZSTD_BUILD_TESTS": "OFF",
+        "ZSTD_STATIC_LINKING_ONLY": "ON",
+        # Configure EACopy options
+        "EACOPY_BUILD_AS_LIBRARY": "ON",
+        "EACOPY_INSTALL": "ON",
+    }
+
+    # Build the wheel
+    session.run("python", "-m", "build", "--wheel", env=env)
+
+    # Step 2: Install the wheel
+    session.log("Step 2: Installing the wheel...")
+
+    # Find the wheel file
+    import glob
+    wheel_files = glob.glob("dist/*.whl")
+    if not wheel_files:
+        session.error("No wheel files found in dist/ directory")
+
+    # Sort by modification time to get the latest wheel
+    wheel_file = sorted(wheel_files, key=os.path.getmtime)[-1]
+    session.log(f"Installing wheel: {wheel_file}")
+
+    # Install the wheel and test dependencies
+    retry_command(session, session.install, wheel_file, max_retries=3)
+    retry_command(session, session.install, "pytest", "pytest-cov", "coverage[toml]", max_retries=3)
+
+    # Step 3: Run tests with coverage
+    session.log("Step 3: Running tests with coverage...")
+
+    # Run tests with coverage
+    session.run(
+        "pytest",
+        "tests/",
+        f"--cov={MODULE_NAME}",
+        "--cov-report=xml:coverage.xml",
+        "--cov-report=term-missing",
+        "--cov-report=html"
+    )
+
+    session.log("All steps completed successfully!")
+    session.log("Coverage report generated in htmlcov/index.html")

@@ -6,7 +6,6 @@ import shutil
 import tempfile
 import unittest
 import asyncio
-from pathlib import Path
 
 # Import the package
 import py_eacopy

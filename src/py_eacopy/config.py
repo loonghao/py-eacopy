@@ -1,7 +1,7 @@
 """Configuration handling for EACopy."""
 
 from enum import Enum
-from typing import Callable, Optional, Union, Dict, Any
+from typing import Callable, Optional, Dict, Any
 
 
 class ErrorStrategy(str, Enum):

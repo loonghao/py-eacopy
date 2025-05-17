@@ -1,7 +1,6 @@
 """Test CLI functionality."""
 
 # Import built-in modules
-import sys
 from unittest import mock
 from click.testing import CliRunner
 

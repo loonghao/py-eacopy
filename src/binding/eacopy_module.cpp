@@ -2,6 +2,9 @@
 #include <string>
 #include <iostream>
 
+// Enable debug logging
+#define EACOPY_DEBUG
+
 namespace py = pybind11;
 
 // Forward declarations
