@@ -21,9 +21,9 @@ pytestmark = pytest.mark.config
 
 
 @pytest.mark.parametrize("thread_count", [1, 4, 8])
-def test_thread_count(test_file, dest_dir, _reset_config, thread_count):
+def test_thread_count(test_file, dest_dir, reset_config, thread_count):
     """Test thread_count configuration with different values."""
-    # _reset_config fixture ensures clean configuration state between tests
+    # reset_config fixture ensures clean configuration state between tests
     # Set thread count
     py_eacopy.config.thread_count = thread_count
 
@@ -36,7 +36,7 @@ def test_thread_count(test_file, dest_dir, _reset_config, thread_count):
 
 
 @pytest.mark.parametrize("compression_level", [0, 5, 9])
-def test_compression_level(test_file, dest_dir, _reset_config, compression_level):
+def test_compression_level(test_file, dest_dir, reset_config, compression_level):
     """Test compression_level configuration with different values."""
     # Set compression level
     py_eacopy.config.compression_level = compression_level
@@ -54,7 +54,7 @@ def test_compression_level(test_file, dest_dir, _reset_config, compression_level
     ErrorStrategy.IGNORE,
     ErrorStrategy.RETRY
 ])
-def test_error_strategy(source_dir, dest_dir, _reset_config, error_strategy):
+def test_error_strategy(source_dir, dest_dir, reset_config, error_strategy):
     """Test error_strategy configuration with different values."""
     # Set error strategy
     py_eacopy.config.error_strategy = error_strategy
@@ -77,7 +77,7 @@ def test_error_strategy(source_dir, dest_dir, _reset_config, error_strategy):
     LogLevel.INFO,
     LogLevel.DEBUG
 ])
-def test_log_level(test_file, dest_dir, _reset_config, log_level, caplog):
+def test_log_level(test_file, dest_dir, reset_config, log_level, caplog):
     """Test log_level configuration with different values."""
     # Set log level
     py_eacopy.config.log_level = log_level
@@ -110,7 +110,7 @@ def test_custom_eacopy_instance(test_file, dest_dir):
     assert os.path.exists(dest_file)
 
 
-def test_global_config(test_file, dest_dir, _reset_config):
+def test_global_config(test_file, dest_dir, reset_config):
     """Test global configuration affects copy operations."""
     # Set global configuration
     py_eacopy.config.thread_count = 8

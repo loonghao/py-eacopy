@@ -1,16 +1,12 @@
 [build-system]
 requires = [
-    "scikit-build-core>=0.5.0",
-    "pybind11>=2.10.0",
-    "setuptools>=61.0.0",
-    "wheel>=0.36.0",
-    "setuptools_scm>=8.0.0",
+    "maturin>=1.4,<2.0",
 ]
-build-backend = "scikit_build_core.build"
+build-backend = "maturin"
 
 [project]
 name = "py-eacopy"
-dynamic = ["version"]
+version = "0.0.1"
 description = "Python bindings for EACopy, a high-performance file copy tool"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -22,7 +18,7 @@ dependencies = [
     "click>=8.0.0",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",
     "License :: OSI Approved :: BSD License",
@@ -35,6 +31,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
     "Topic :: System :: Filesystems",
 ]
 
@@ -78,43 +75,37 @@ Changelog = "https://github.com/loonghao/py-eacopy/blob/main/CHANGELOG.md"
 [project.scripts]
 eacopy = "py_eacopy.cli:main"
 
-[tool.scikit-build]
-# 基本配置
-wheel.packages = ["src/py_eacopy"]
-wheel.exclude = ["tests/*"]
-wheel.expand-macos-universal-tags = false
-sdist.include = ["src/py_eacopy/*", "src/binding/*", "CMakeLists.txt", "LICENSE", "README.md"]
-sdist.exclude = ["tests/data/*"]
-# 启用实验性功能
-experimental = true
+[tool.maturin]
+# Python module name
+python-source = "src"
+module-name = "py_eacopy._eacopy_binding"
+# Build features
+features = ["python"]
+# Compatibility settings
+target-list = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "x86_64-apple-darwin"]
+# Use abi3 for better compatibility
+abi3 = true
+# Minimum Python version for abi3
+abi3-py38 = true
+# Strip debug symbols
+strip = true
+# Exclude files from sdist
+sdist-include = ["LICENSE", "README.md", "CHANGELOG.md", "extern/EACopy/**/*"]
+# Exclude files from wheel
+exclude = ["tests/*", "docs/*", "examples/*", ".github/*", "nox_actions/*"]
 
-[tool.scikit-build.metadata.version]
-provider = "scikit_build_core.metadata.setuptools_scm"
-
-[tool.setuptools_scm]
-# 格式: 1.2.3 (不带 'v' 前缀)
-tag_regex = "^(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+)(?P<dev>-[a-zA-Z0-9]+)?$"
-local_scheme = "no-local-version"
-# 不使用 dev0 后缀以避免元数据不匹配
-version_scheme = "release-branch-semver"
-# 当没有 Git 标签时的回退版本
-fallback_version = "0.0.1.dev0"
-
-[tool.scikit-build.cmake]
-version = ">=3.15"
-build-type = "Release"
-# 平台特定配置在 CMakeLists.txt 中处理
-
-[tool.scikit-build.cmake.define]
-# 确保共享库的位置无关代码
-CMAKE_POSITION_INDEPENDENT_CODE = "ON"
-# 使用动态运行时库以匹配 Python 的期望
-CMAKE_MSVC_RUNTIME_LIBRARY = "MultiThreadedDLL"
-# 禁用有限 API 以获得最大兼容性
-PYTHON_LIMITED_API = "OFF"
-# 我们在 CMakeLists.txt 中手动处理符号导出
-CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS = "OFF"
-# 禁用 ABI3 模式
-SKBUILD_SOABI = "OFF"
-# 使用 pybind11 的默认 Python 处理
-PYBIND11_FINDPYTHON = "ON"
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "basic: Basic functionality tests",
+    "config: Configuration tests",
+    "error_handling: Error handling tests",
+    "async: Asynchronous functionality tests",
+    "performance: Performance tests",
+    "unicode: Unicode/non-ASCII path handling tests",
+    "callbacks: Callback functionality tests",
+    "cli: Command-line interface tests",
+]

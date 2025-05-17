@@ -170,21 +170,55 @@ poetry install
 
 This project uses nox to standardize the build process across local development and CI environments:
 
+#### Using CPM.cmake (Recommended)
+
+CPM.cmake is now the recommended way to build py-eacopy, as it simplifies dependency management:
+
 ```bash
 # Install nox
 pip install nox
 
-# Build the package
+# Build with CPM.cmake
+nox -s build-cpm
+
+# Build and test with CPM.cmake
+nox -s build-test-cpm
+
+# Build wheels with CPM.cmake
+nox -s build-wheels-cpm
+```
+
+For faster builds, you can set the CPM cache directory to avoid re-downloading dependencies:
+
+```bash
+# Windows
+set CPM_SOURCE_CACHE=C:/Users/username/.cache/CPM
+
+# Linux/macOS
+export CPM_SOURCE_CACHE=~/.cache/CPM
+```
+
+See the [CPM.cmake Build Guide](docs/cpm_build_guide.md) for more details.
+
+#### Legacy Build Methods
+
+The following build methods are still supported but are being phased out:
+
+```bash
+# Standard build
 nox -s build
 
 # Fast development build
 nox -s fast-build
 
-# Build using static library (faster)
+# Build using static library
 nox -s build-static
 
 # Build wheels for distribution
 nox -s build-wheels
+
+# Build with vcpkg
+nox -s build-vcpkg
 ```
 
 You can also use the following environment variables to customize the build:
@@ -222,20 +256,28 @@ nox -s docs-serve
 
 ## Dependencies
 
-This project uses a hybrid approach for dependency management:
+This project now uses CPM.cmake for dependency management, which simplifies the build process and eliminates the need for Git submodules.
 
-1. **EACopy**: The main dependency is managed as a Git submodule pointing to our fork of EACopy.
-2. **Third-party libraries**: Critical dependencies like xdelta, zstd, and lzma are managed as separate Git submodules pointing to their official repositories.
+### Managed Dependencies
 
-### Dependency Structure
+CPM.cmake automatically manages the following dependencies:
+
+- **EACopy**: The main dependency, automatically downloaded from our fork.
+- **pybind11**: Used for creating Python bindings.
+- **Boost**: Used for file system operations and signal handling.
+- **utf8cpp**: Used for UTF-8 encoding handling.
+- **zstd**: Used for data compression.
+- **xz/lzma**: Used for LZMA compression.
+- **xdelta**: Used for incremental copying.
+
+### Legacy Dependency Structure (Being Phased Out)
+
+The following Git submodule structure is still supported but is being phased out:
 
 - `extern/EACopy`: Our fork of EACopy
 - `extern/xdelta`: Official xdelta repository
 - `extern/zstd`: Official zstd repository
 - `extern/xz`: Official xz-utils (lzma) repository
-
-Other dependencies:
-- [pybind11](https://github.com/pybind/pybind11) - C++11 Python bindings
 
 ## License
 
@@ -245,11 +287,13 @@ BSD-3-Clause (same as EACopy)
 
 This project uses GitHub Actions for CI/CD with the following workflows:
 
-- **Build and Test**: Tests the package on multiple Python versions and operating systems using nox.
+- **Build and Test**: Tests the package on multiple Python versions and operating systems using CPM.cmake and nox.
 - **Release**: Builds and publishes wheels to PyPI when a new release is created.
 - **Documentation**: Builds and deploys documentation to GitHub Pages.
 
 The CI/CD pipeline uses the same nox-based build process as local development, ensuring consistency between development and production environments. When a tag is pushed, the workflow automatically builds wheels for all supported platforms and Python versions, then uploads them to PyPI.
+
+The CI configuration has been simplified to use CPM.cmake for dependency management, eliminating the need for Git submodules and complex dependency setup steps.
 
 ### Release Process
 

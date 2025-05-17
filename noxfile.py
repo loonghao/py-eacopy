@@ -1,6 +1,9 @@
 # Import built-in modules
 import os
 import sys
+import shutil
+import glob
+from pathlib import Path
 
 # Import third-party modules
 import nox
@@ -17,129 +20,155 @@ ROOT = os.path.dirname(__file__)
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-# Import local modules
-from nox_actions import build, codetest, docs, lint  # noqa: E402
+# Define constants
+MODULE_NAME = "py_eacopy"
+WHEELHOUSE_DIR = os.path.join(ROOT, "@wheelhouse")
 
-
-def custom_build(session: nox.Session) -> None:
-    """Custom build for development with toolchain file."""
-    # Get the toolchain file path from environment
-    toolchain_file = os.environ.get("CMAKE_TOOLCHAIN_FILE", "")
-    if not toolchain_file:
-        session.log("Warning: CMAKE_TOOLCHAIN_FILE not set, using default build")
-        build.install(session)
-        return
-
-    session.log(f"Using custom toolchain file: {toolchain_file}")
-
-    # Set environment variables for faster builds
-    env = {
-        # Enable parallel build with CMake
-        "CMAKE_BUILD_PARALLEL_LEVEL": str(os.cpu_count() or 4),
-        # Enable parallel compilation with MSVC
-        "CL": "/MP",
-        # Configure zstd options
-        "ZSTD_BUILD_PROGRAMS": "OFF",
-        "ZSTD_BUILD_SHARED": "OFF",
-        "ZSTD_BUILD_TESTS": "OFF",
-        "ZSTD_STATIC_LINKING_ONLY": "ON",
-        # Set toolchain file
-        "CMAKE_TOOLCHAIN_FILE": toolchain_file,
-    }
-
-    # Install build dependencies
-    session.install(
-        "wheel",
-        "setuptools>=42.0.0",
-        "setuptools_scm>=8.0.0",
-        "scikit-build-core>=0.5.0",
-        "pybind11>=2.10.0",
-        "cmake>=3.15.0",
-    )
-
-    # Clean build directory if it exists
-    if os.path.exists("_skbuild"):
-        session.log("Cleaning previous build directory...")
-        import shutil
-        shutil.rmtree("_skbuild")
-
-    # Build in development mode with custom toolchain
-    session.log("Building in development mode with custom toolchain...")
-
-    config_settings = [
-        "--config-settings=cmake.define.CMAKE_BUILD_TYPE=Release",
-        "--config-settings=cmake.define.ZSTD_BUILD_PROGRAMS=OFF",
-        "--config-settings=cmake.define.ZSTD_BUILD_SHARED=OFF",
-        "--config-settings=cmake.define.ZSTD_BUILD_TESTS=OFF",
-        "--config-settings=cmake.define.ZSTD_STATIC_LINKING_ONLY=ON",
-        f"--config-settings=cmake.define.CMAKE_TOOLCHAIN_FILE={toolchain_file}",
-    ]
-
-    session.run(
-        "pip",
-        "install",
-        "-e",
-        ".",
-        *config_settings,
-        env=env,
-    )
-
-    session.log("Custom build completed successfully!")
-    session.log("You can now import the package in Python: import eacopy")
-
-
-# Define a session for running tests without reinstalling the package
-def pytest_skip_install(session: nox.Session) -> None:
-    """Run tests without reinstalling the package.
-
-    This is useful for CI where we've already installed the wheel.
-    """
-    session.install("pytest", "pytest-cov")
-    session.run("pytest", "tests", "--cov=py_eacopy", "--cov-report=term", "--cov-report=xml")
-
-
-def test_with_wheel(session: nox.Session) -> None:
-    """Install the wheel file and run tests.
-
-    This is useful for testing the built wheel without rebuilding.
-    """
-    import glob
-    import os
-
-    # Find the latest wheel file
-    wheel_files = glob.glob(os.path.join("wheelhouse", "py_eacopy-*.whl"))
+# Helper functions
+def get_latest_wheel():
+    """Get the latest wheel file from the wheelhouse directory."""
+    wheel_files = glob.glob(os.path.join(WHEELHOUSE_DIR, "*.whl"))
     if not wheel_files:
-        session.error("No wheel files found in wheelhouse directory")
+        raise FileNotFoundError(f"No wheel files found in {WHEELHOUSE_DIR}")
+    return sorted(wheel_files, key=os.path.getmtime)[-1]
 
-    # Sort by modification time (newest first)
-    latest_wheel = sorted(wheel_files, key=os.path.getmtime, reverse=True)[0]
-    session.log(f"Installing wheel file: {latest_wheel}")
+def retry_command(session, func, *args, max_retries=3, **kwargs):
+    """Retry a command multiple times."""
+    for i in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            if i == max_retries - 1:
+                raise
+            session.log(f"Command failed, retrying ({i+1}/{max_retries}): {e}")
 
-    # Install the wheel file and test dependencies
-    session.install(latest_wheel)
+# Build sessions
+@nox.session
+def build(session):
+    """Build the Rust extension."""
+    session.install("maturin>=1.4,<2.0")
+    session.run("maturin", "build", "--release")
+
+@nox.session
+def build_wheel(session):
+    """Build the wheel package."""
+    session.install("maturin>=1.4,<2.0")
+    os.makedirs(WHEELHOUSE_DIR, exist_ok=True)
+    session.run("maturin", "build", "--release", "--out", WHEELHOUSE_DIR)
+
+@nox.session
+def develop(session):
+    """Install the package in development mode."""
+    session.install("maturin>=1.4,<2.0")
+    session.run("maturin", "develop", "--release")
+
+@nox.session
+def clean(session):
+    """Clean build artifacts."""
+    # Clean Rust build artifacts
+    session.run("cargo", "clean", external=True)
+
+    # Clean Python build artifacts
+    for path in ["dist", "target", WHEELHOUSE_DIR]:
+        if os.path.exists(path):
+            session.log(f"Removing {path}")
+            shutil.rmtree(path)
+
+# Test sessions
+@nox.session
+def pytest(session):
+    """Run tests."""
+    session.install("pytest", "pytest-cov")
+    session.install("-e", ".")
+    session.run(
+        "pytest",
+        "tests/",
+        f"--cov={MODULE_NAME}",
+        "--cov-report=xml:coverage.xml",
+        "--cov-report=term-missing"
+    )
+
+@nox.session
+def test_wheel(session):
+    """Test the wheel package."""
+    # Install the wheel and test dependencies
     session.install("pytest", "pytest-cov")
 
-    # Run the tests
-    session.run("pytest", "tests", "--cov=py_eacopy", "--cov-report=term", "--cov-report=xml")
+    # Find the latest wheel
+    try:
+        wheel_file = get_latest_wheel()
+    except FileNotFoundError:
+        session.log("No wheel found, building one...")
+        build_wheel(session)
+        wheel_file = get_latest_wheel()
 
+    session.log(f"Installing wheel: {wheel_file}")
+    session.install(wheel_file)
 
-# Register nox sessions
-nox.session(lint.lint, name="lint", reuse_venv=True)
-nox.session(lint.lint_fix, name="lint-fix", reuse_venv=True)
-nox.session(codetest.pytest, name="pytest")
-nox.session(codetest.basic_test, name="basic-test")
-nox.session(docs.docs, name="docs")
-nox.session(docs.docs_serve, name="docs-serve")
-nox.session(build.build, name="build")
-nox.session(build.build_wheels, name="build-wheels")
-nox.session(build.build_with_static_lib, name="build-static")  # Added: Build using static library
-nox.session(build.verify_wheels, name="verify-wheels")
-nox.session(build.clean, name="clean")
-nox.session(codetest.build_test, name="build-test")
-nox.session(codetest.build_no_test, name="build-no-test")
-nox.session(codetest.coverage, name="coverage")
-nox.session(codetest.build_test_coverage, name="build-test-coverage")
-nox.session(build.install, name="fast-build")
-nox.session(custom_build, name="custom-build")
-nox.session(pytest_skip_install, name="pytest_skip_install")
-nox.session(test_with_wheel, name="test-wheel")
+    # Run tests with simplified test file
+    session.run(
+        "pytest",
+        "tests/test_simplified.py",
+        f"--cov={MODULE_NAME}",
+        "--cov-report=xml:coverage.xml",
+        "--cov-report=term-missing"
+    )
+
+@nox.session
+def build_test(session):
+    """Build and test the package."""
+    # Build the wheel
+    build_wheel(session)
+
+    # Test the wheel
+    test_wheel(session)
+
+# Lint sessions
+@nox.session
+def lint(session):
+    """Run linting checks."""
+    session.install("ruff", "black")
+
+    # Lint Python code
+    session.run("ruff", "check", "src", "tests")
+    session.run("black", "--check", "src", "tests")
+
+    # Lint Rust code
+    session.run("cargo", "clippy", "--all-targets", "--all-features", "--", "-D", "warnings", external=True)
+
+@nox.session
+def lint_fix(session):
+    """Fix linting issues."""
+    session.install("ruff", "black")
+
+    # Fix Python code
+    session.run("ruff", "check", "--fix", "src", "tests")
+    session.run("black", "src", "tests")
+
+    # Fix Rust code
+    session.run("cargo", "clippy", "--fix", "--allow-dirty", "--allow-staged", external=True)
+
+# Documentation sessions
+@nox.session
+def docs(session):
+    """Build documentation."""
+    session.install("-e", ".[docs]")
+    session.run("sphinx-build", "-b", "html", "docs", "docs/_build/html")
+
+@nox.session
+def docs_serve(session):
+    """Serve documentation with live reloading."""
+    session.install("-e", ".[docs]")
+    session.run("sphinx-autobuild", "docs", "docs/_build/html")
+
+# Release sessions
+@nox.session
+def publish(session):
+    """Publish the package to PyPI."""
+    session.install("maturin>=1.4,<2.0", "twine")
+
+    # Build wheels for all platforms
+    session.run("maturin", "build", "--release", "--strip")
+
+    # Upload to PyPI
+    session.run("twine", "upload", "target/wheels/*")

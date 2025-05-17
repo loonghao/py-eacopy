@@ -1,0 +1,46 @@
+[package]
+name = "py-eacopy"
+version = "0.0.1"
+edition = "2021"
+authors = ["Long Hao <hal.long@outlook.com>"]
+description = "Python bindings for EACopy, a high-performance file copy tool"
+readme = "README.md"
+license = "BSD-3-Clause"
+repository = "https://github.com/loonghao/py-eacopy"
+keywords = ["file", "copy", "eacopy", "performance", "filesystem"]
+categories = ["filesystem", "api-bindings"]
+
+[lib]
+name = "py_eacopy"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# FFI dependencies
+libc = "0.2"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Utilities
+log = "0.4"
+
+# Python bindings
+pyo3 = { version = "0.20", features = ["extension-module", "abi3-py38"] }
+
+[build-dependencies]
+
+[dev-dependencies]
+tempfile = "3.9"
+criterion = { version = "0.5", features = ["html_reports"] }
+rstest = "0.18"
+rand = "0.8"
+num_cpus = "1.16"
+
+[[bench]]
+name = "copy_benchmark"
+harness = false
+
+[features]
+default = ["python"]
+python = ["pyo3/extension-module"]

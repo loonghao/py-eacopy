@@ -10,6 +10,10 @@ class ErrorStrategy(str, Enum):
     RETRY = "retry"  # Retry the operation
     IGNORE = "ignore"  # Ignore errors and continue
 
+    def __str__(self) -> str:
+        """Return the string value of the enum."""
+        return self.value
+
 
 class LogLevel(str, Enum):
     """Log levels for EACopy operations."""

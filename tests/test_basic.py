@@ -69,8 +69,8 @@ def test_copytree(nested_dir_structure, dest_dir):
     """Test copytree function."""
     source_dir = nested_dir_structure["root"]
 
-    # Copy the directory tree
-    py_eacopy.copytree(source_dir, dest_dir)
+    # Copy the directory tree with dirs_exist_ok=True to handle existing destination directory
+    py_eacopy.copytree(source_dir, dest_dir, dirs_exist_ok=True)
 
     # Check if the directory was copied
     assert os.path.exists(dest_dir)

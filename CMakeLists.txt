@@ -1,15 +1,22 @@
 cmake_minimum_required(VERSION 3.15)
 project(${SKBUILD_PROJECT_NAME} LANGUAGES CXX)
 
+# Set up module path for our own cmake modules
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
+
 # Set minimum CMake policy version to handle old CMake code in dependencies
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "Minimum CMake policy version")
 
-# Simplified CMake configuration focused on using existing static library
+# Enable ccache if available
+include(UseCCache)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# Include CPM.cmake for dependency management
+include(cmake/CPM.cmake)
 
 # Detect target architecture
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
@@ -70,17 +77,113 @@ else()
     add_compile_options(-Wall -Wno-unused-variable -Wno-sign-compare -Wno-unused-parameter)
 endif()
 
-# Find pybind11
-find_package(pybind11 CONFIG REQUIRED)
+# Add dependencies using CPM.cmake
+CPMAddPackage(
+  NAME pybind11
+  GITHUB_REPOSITORY pybind/pybind11
+  VERSION 2.11.1
+  OPTIONS
+    "PYBIND11_TEST OFF"
+)
+
+CPMAddPackage(
+  NAME utf8cpp
+  GITHUB_REPOSITORY nemtrif/utfcpp
+  VERSION 3.2.5
+)
+
+CPMAddPackage(
+  NAME Boost
+  VERSION 1.84.0
+  URL https://github.com/boostorg/boost/releases/download/boost-1.84.0/boost-1.84.0.tar.xz
+  URL_HASH SHA256=2e64e5d79a738d0fa6fb546c6e5c2bd28f88d268a2a080546f74e5ff98f29d0e
+  OPTIONS "BOOST_ENABLE_CMAKE ON"
+)
+
+# Add more dependencies using CPM.cmake
+CPMAddPackage(
+  NAME zstd
+  GITHUB_REPOSITORY facebook/zstd
+  VERSION 1.5.5
+  OPTIONS
+    "ZSTD_BUILD_PROGRAMS OFF"
+    "ZSTD_BUILD_TESTS OFF"
+    "ZSTD_BUILD_SHARED OFF"
+    "ZSTD_STATIC_LINKING_ONLY ON"
+)
+
+# Build zstd library from source
+add_library(libzstd_static STATIC
+    ${zstd_SOURCE_DIR}/lib/common/debug.c
+    ${zstd_SOURCE_DIR}/lib/common/entropy_common.c
+    ${zstd_SOURCE_DIR}/lib/common/error_private.c
+    ${zstd_SOURCE_DIR}/lib/common/fse_decompress.c
+    ${zstd_SOURCE_DIR}/lib/common/pool.c
+    ${zstd_SOURCE_DIR}/lib/common/threading.c
+    ${zstd_SOURCE_DIR}/lib/common/xxhash.c
+    ${zstd_SOURCE_DIR}/lib/common/zstd_common.c
+    ${zstd_SOURCE_DIR}/lib/compress/fse_compress.c
+    ${zstd_SOURCE_DIR}/lib/compress/hist.c
+    ${zstd_SOURCE_DIR}/lib/compress/huf_compress.c
+    ${zstd_SOURCE_DIR}/lib/compress/zstd_compress.c
+    ${zstd_SOURCE_DIR}/lib/compress/zstd_compress_literals.c
+    ${zstd_SOURCE_DIR}/lib/compress/zstd_compress_sequences.c
+    ${zstd_SOURCE_DIR}/lib/compress/zstd_compress_superblock.c
+    ${zstd_SOURCE_DIR}/lib/compress/zstd_double_fast.c
+    ${zstd_SOURCE_DIR}/lib/compress/zstd_fast.c
+    ${zstd_SOURCE_DIR}/lib/compress/zstd_lazy.c
+    ${zstd_SOURCE_DIR}/lib/compress/zstd_ldm.c
+    ${zstd_SOURCE_DIR}/lib/compress/zstd_opt.c
+    ${zstd_SOURCE_DIR}/lib/decompress/huf_decompress.c
+    ${zstd_SOURCE_DIR}/lib/decompress/zstd_ddict.c
+    ${zstd_SOURCE_DIR}/lib/decompress/zstd_decompress.c
+    ${zstd_SOURCE_DIR}/lib/decompress/zstd_decompress_block.c
+)
+
+target_include_directories(libzstd_static PRIVATE
+    ${zstd_SOURCE_DIR}/lib
+    ${zstd_SOURCE_DIR}/lib/common
+    ${zstd_SOURCE_DIR}/lib/compress
+    ${zstd_SOURCE_DIR}/lib/decompress
+)
+
+target_compile_definitions(libzstd_static PRIVATE
+    ZSTD_STATIC_LINKING_ONLY
+)
+
+CPMAddPackage(
+  NAME xz
+  GITHUB_REPOSITORY tukaani-project/xz
+  VERSION 5.4.5
+  DOWNLOAD_ONLY YES
+)
+
+CPMAddPackage(
+  NAME xdelta
+  URL https://github.com/jmacd/xdelta/archive/refs/heads/master.zip
+  DOWNLOAD_ONLY YES
+)
+
+# Add EACopy as a dependency
+CPMAddPackage(
+  NAME EACopy
+  URL https://github.com/electronicarts/EACopy/archive/refs/heads/master.zip
+  DOWNLOAD_ONLY YES
+)
 
 # Include directories
 include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/EACopy/include
+    ${EACopy_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/binding
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/EACopy/external/zstd/lib
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/EACopy/external/lzma/liblzma/api
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/EACopy/external/xdelta/xdelta3
+    ${zstd_SOURCE_DIR}/lib
+    ${xz_SOURCE_DIR}/src/liblzma/api
+    ${xdelta_SOURCE_DIR}/xdelta3
+    ${Boost_INCLUDE_DIR}
+    ${utf8cpp_SOURCE_DIR}/source
 )
+
+# Add utf8cpp include directory
+include_directories(SYSTEM ${utf8cpp_SOURCE_DIR})
 
 # Add global definitions
 add_definitions(
@@ -98,22 +201,132 @@ if(WIN32)
     add_definitions(-D_WIN32=1 -DXD3_WIN32=1)
 endif()
 
-# Build zstd library
-set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "Build programs" FORCE)
-set(ZSTD_BUILD_TESTS OFF CACHE BOOL "Build tests" FORCE)
-set(ZSTD_BUILD_SHARED OFF CACHE BOOL "Build shared libraries" FORCE)
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/extern/EACopy/external/zstd/build/cmake EXCLUDE_FROM_ALL)
+# Build lzma library from source
+add_library(lzma STATIC
+    ${xz_SOURCE_DIR}/src/liblzma/common/common.c
+    ${xz_SOURCE_DIR}/src/liblzma/common/block_util.c
+    ${xz_SOURCE_DIR}/src/liblzma/common/easy_preset.c
+    ${xz_SOURCE_DIR}/src/liblzma/common/filter_common.c
+    ${xz_SOURCE_DIR}/src/liblzma/common/hardware_physmem.c
+    ${xz_SOURCE_DIR}/src/liblzma/common/index.c
+    ${xz_SOURCE_DIR}/src/liblzma/common/stream_flags_common.c
+    ${xz_SOURCE_DIR}/src/liblzma/common/string_conversion.c
+    ${xz_SOURCE_DIR}/src/liblzma/common/vli_size.c
+    ${xz_SOURCE_DIR}/src/liblzma/check/check.c
+    ${xz_SOURCE_DIR}/src/liblzma/check/crc32_table.c
+    ${xz_SOURCE_DIR}/src/liblzma/check/crc32_fast.c
+    ${xz_SOURCE_DIR}/src/liblzma/check/crc64_table.c
+    ${xz_SOURCE_DIR}/src/liblzma/check/crc64_fast.c
+    ${xz_SOURCE_DIR}/src/liblzma/check/sha256.c
+    ${xz_SOURCE_DIR}/src/liblzma/lz/lz_decoder.c
+    ${xz_SOURCE_DIR}/src/liblzma/lz/lz_encoder.c
+    ${xz_SOURCE_DIR}/src/liblzma/lz/lz_encoder_mf.c
+    ${xz_SOURCE_DIR}/src/liblzma/lzma/lzma_decoder.c
+    ${xz_SOURCE_DIR}/src/liblzma/lzma/lzma_encoder.c
+    ${xz_SOURCE_DIR}/src/liblzma/lzma/lzma_encoder_presets.c
+    ${xz_SOURCE_DIR}/src/liblzma/lzma/lzma2_decoder.c
+    ${xz_SOURCE_DIR}/src/liblzma/lzma/lzma2_encoder.c
+    ${xz_SOURCE_DIR}/src/liblzma/rangecoder/price_table.c
+    ${xz_SOURCE_DIR}/src/liblzma/delta/delta_common.c
+    ${xz_SOURCE_DIR}/src/liblzma/delta/delta_decoder.c
+    ${xz_SOURCE_DIR}/src/liblzma/delta/delta_encoder.c
+    ${xz_SOURCE_DIR}/src/liblzma/simple/simple_coder.c
+    ${xz_SOURCE_DIR}/src/liblzma/simple/simple_decoder.c
+    ${xz_SOURCE_DIR}/src/liblzma/simple/simple_encoder.c
+    ${xz_SOURCE_DIR}/src/liblzma/simple/arm.c
+    ${xz_SOURCE_DIR}/src/liblzma/simple/armthumb.c
+    ${xz_SOURCE_DIR}/src/liblzma/simple/ia64.c
+    ${xz_SOURCE_DIR}/src/liblzma/simple/powerpc.c
+    ${xz_SOURCE_DIR}/src/liblzma/simple/sparc.c
+    ${xz_SOURCE_DIR}/src/liblzma/simple/x86.c
+)
 
-# Build lzma library
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/extern/EACopy/external/lzma EXCLUDE_FROM_ALL)
+# Create config.h for lzma
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/config.h "
+#define HAVE_STDBOOL_H 1
+#define HAVE_STDINT_H 1
+#define HAVE_MEMORY_H 1
+#define HAVE_STRING_H 1
+#define HAVE_STRINGS_H 1
+#define HAVE_INTTYPES_H 1
+#define HAVE_LIMITS_H 1
+#define HAVE_STDLIB_H 1
+#define HAVE_VISIBILITY 1
+#define HAVE_PTHREAD 1
+#define HAVE_PTHREAD_PRIO_INHERIT 1
+#define HAVE_CLOCK_GETTIME 1
+#define HAVE_UTIME 1
+#define HAVE_FUTIMENS 1
+#define HAVE_FCNTL_H 1
+#define HAVE_GETOPT_H 1
+#define HAVE_GETOPT_LONG 1
+#define HAVE_IMMINTRIN_H 1
+#define HAVE_MBRTOWC 1
+#define HAVE_WCWIDTH 1
+#define HAVE_UTIME_H 1
+#define HAVE_SYS_TIME_H 1
+#define HAVE_SYS_STAT_H 1
+#define HAVE_DECODER_ARM 1
+#define HAVE_DECODER_ARMTHUMB 1
+#define HAVE_DECODER_DELTA 1
+#define HAVE_DECODER_IA64 1
+#define HAVE_DECODER_LZMA1 1
+#define HAVE_DECODER_LZMA2 1
+#define HAVE_DECODER_POWERPC 1
+#define HAVE_DECODER_SPARC 1
+#define HAVE_DECODER_X86 1
+#define HAVE_ENCODER_ARM 1
+#define HAVE_ENCODER_ARMTHUMB 1
+#define HAVE_ENCODER_DELTA 1
+#define HAVE_ENCODER_IA64 1
+#define HAVE_ENCODER_LZMA1 1
+#define HAVE_ENCODER_LZMA2 1
+#define HAVE_ENCODER_POWERPC 1
+#define HAVE_ENCODER_SPARC 1
+#define HAVE_ENCODER_X86 1
+#define HAVE_MF_BT2 1
+#define HAVE_MF_BT3 1
+#define HAVE_MF_BT4 1
+#define HAVE_MF_HC3 1
+#define HAVE_MF_HC4 1
+#define HAVE_CHECK_CRC32 1
+#define HAVE_CHECK_CRC64 1
+#define HAVE_CHECK_SHA256 1
+#define SIZEOF_SIZE_T 8
+#define ASSUME_RAM 128
+#define ENABLE_NLS 1
+#define MYTHREAD_POSIX 1
+#define PACKAGE_NAME \"XZ Utils\"
+#define PACKAGE_VERSION \"5.4.5\"
+")
+
+target_include_directories(lzma PRIVATE
+    ${xz_SOURCE_DIR}/src/liblzma/api
+    ${xz_SOURCE_DIR}/src/liblzma/common
+    ${xz_SOURCE_DIR}/src/liblzma/check
+    ${xz_SOURCE_DIR}/src/liblzma/lz
+    ${xz_SOURCE_DIR}/src/liblzma/rangecoder
+    ${xz_SOURCE_DIR}/src/liblzma/lzma
+    ${xz_SOURCE_DIR}/src/liblzma/delta
+    ${xz_SOURCE_DIR}/src/liblzma/simple
+    ${xz_SOURCE_DIR}/src/common
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
+
+target_compile_definitions(lzma PRIVATE
+    HAVE_CONFIG_H
+    LZMA_API_STATIC
+)
+
+# zstd is now handled by CPM.cmake
 
 # Build xdelta library
 add_library(xdelta STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/EACopy/external/xdelta/xdelta3/xdelta3.c
+    ${xdelta_SOURCE_DIR}/xdelta3/xdelta3.c
 )
 target_include_directories(xdelta PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/EACopy/external/xdelta/xdelta3
-    ${CMAKE_CURRENT_SOURCE_DIR}/extern/EACopy/external/lzma/liblzma/api
+    ${xdelta_SOURCE_DIR}/xdelta3
+    ${xz_SOURCE_DIR}/src/liblzma/api
 )
 target_compile_definitions(xdelta PRIVATE
     SIZEOF_SIZE_T=${CMAKE_SIZEOF_VOID_P}
@@ -149,6 +362,9 @@ if(WIN32)
     target_link_libraries(_eacopy_binding PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src/binding/EACopyLib.lib"
         libzstd_static lzma xdelta
+        utf8cpp
+        Boost::filesystem
+        Boost::signals2
         ws2_32 advapi32  # Windows-specific libraries
     )
 else()
@@ -156,6 +372,9 @@ else()
     target_link_libraries(_eacopy_binding PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src/binding/EACopyLib.a"
         libzstd_static lzma xdelta
+        utf8cpp
+        Boost::filesystem
+        Boost::signals2
     )
 endif()
 
