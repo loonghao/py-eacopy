@@ -1,6 +1,3 @@
-#define PYBIND11_PYTHON_VERSION 0x03080000  // Python 3.8
-// Removed PYBIND11_STATIC_LIBRARY to use dynamic linking with Python
-
 #include <pybind11/pybind11.h>
 #include <string>
 #include <iostream>
@@ -19,6 +16,4 @@ PYBIND11_MODULE(_eacopy_binding, m) {
     // Initialize bindings
     init_eacopy_binding(m);
 
-    // Print Python version information for debugging
-    std::cout << "Using Python " << PY_VERSION << std::endl;
 }
