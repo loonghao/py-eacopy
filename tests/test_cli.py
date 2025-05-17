@@ -1,12 +1,11 @@
 """Test CLI functionality."""
 
 # Import built-in modules
-import sys
 from unittest import mock
 from click.testing import CliRunner
 
 # Import local modules
-from eacopy import cli
+from py_eacopy import cli
 
 
 def test_cli_version():
@@ -17,7 +16,7 @@ def test_cli_version():
     assert "version" in result.output.lower()
 
 
-@mock.patch("eacopy.cli.copy")
+@mock.patch("py_eacopy.cli.copy")
 def test_cli_cp(mock_copy):
     """Test CLI cp command."""
     runner = CliRunner()
@@ -32,7 +31,7 @@ def test_cli_cp(mock_copy):
         assert "Copied" in result.output
 
 
-@mock.patch("eacopy.cli.copy2")
+@mock.patch("py_eacopy.cli.copy2")
 def test_cli_cp_with_metadata(mock_copy2):
     """Test CLI cp command with preserve metadata."""
     runner = CliRunner()
@@ -47,7 +46,7 @@ def test_cli_cp_with_metadata(mock_copy2):
         assert "Copied" in result.output
 
 
-@mock.patch("eacopy.cli.copytree")
+@mock.patch("py_eacopy.cli.copytree")
 def test_cli_cptree(mock_copytree):
     """Test CLI cptree command."""
     runner = CliRunner()
@@ -68,7 +67,7 @@ def test_cli_cptree(mock_copytree):
         assert "Copied directory tree" in result.output
 
 
-@mock.patch("eacopy.cli.copy_with_server")
+@mock.patch("py_eacopy.cli.copy_with_server")
 def test_cli_server(mock_copy_with_server):
     """Test CLI server command."""
     runner = CliRunner()
@@ -89,7 +88,7 @@ def test_cli_server(mock_copy_with_server):
         assert "Copied" in result.output
 
 
-@mock.patch("eacopy.cli.copy")
+@mock.patch("py_eacopy.cli.copy")
 def test_cli_error(mock_copy):
     """Test CLI error handling."""
     mock_copy.side_effect = Exception("Test error")

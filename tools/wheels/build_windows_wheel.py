@@ -11,7 +11,6 @@ and uses the first one that succeeds.
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 
 def run_command(cmd, cwd=None, env=None):

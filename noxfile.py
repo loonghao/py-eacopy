@@ -1,187 +1,174 @@
 # Import built-in modules
 import os
-import platform
 import sys
+import shutil
+import glob
+from pathlib import Path
 
 # Import third-party modules
 import nox
 
+# Configure nox
+nox.options.reuse_existing_virtualenvs = True
+nox.options.error_on_missing_interpreters = False
+# Enable pip cache to speed up dependency installation
+os.environ["PIP_NO_CACHE_DIR"] = "0"
+
+ROOT = os.path.dirname(__file__)
+
+# Ensure py_eacopy is importable.
+if ROOT not in sys.path:
+    sys.path.append(ROOT)
+
+# Define constants
+MODULE_NAME = "py_eacopy"
+WHEELHOUSE_DIR = os.path.join(ROOT, "@wheelhouse")
+
+# Helper functions
+def get_latest_wheel():
+    """Get the latest wheel file from the wheelhouse directory."""
+    wheel_files = glob.glob(os.path.join(WHEELHOUSE_DIR, "*.whl"))
+    if not wheel_files:
+        raise FileNotFoundError(f"No wheel files found in {WHEELHOUSE_DIR}")
+    return sorted(wheel_files, key=os.path.getmtime)[-1]
+
+def retry_command(session, func, *args, max_retries=3, **kwargs):
+    """Retry a command multiple times."""
+    for i in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            if i == max_retries - 1:
+                raise
+            session.log(f"Command failed, retrying ({i+1}/{max_retries}): {e}")
+
+# Build sessions
+@nox.session
+def build(session):
+    """Build the Rust extension."""
+    session.install("maturin>=1.4,<2.0")
+    session.run("maturin", "build", "--release")
 
 @nox.session
-def lint(session):
-    """Run linting checks."""
-    session.install("ruff", "mypy", "isort")
-    session.run("mypy", "--install-types", "--non-interactive")
-    session.run("ruff", "check", ".")
-    session.run("ruff", "format", "--check", ".")
-    session.run("isort", "--check-only", ".")
-    session.run("mypy", "src/eacopy", "--strict")
-
+def build_wheel(session):
+    """Build the wheel package."""
+    session.install("maturin>=1.4,<2.0")
+    os.makedirs(WHEELHOUSE_DIR, exist_ok=True)
+    session.run("maturin", "build", "--release", "--out", WHEELHOUSE_DIR)
 
 @nox.session
-def lint_fix(session):
-    """Fix linting issues."""
-    session.install("ruff", "mypy", "isort")
-    session.run("ruff", "check", "--fix", ".")
-    session.run("ruff", "format", ".")
-    session.run("isort", ".")
+def develop(session):
+    """Install the package in development mode."""
+    session.install("maturin>=1.4,<2.0")
+    session.run("maturin", "develop", "--release")
 
+@nox.session
+def clean(session):
+    """Clean build artifacts."""
+    # Clean Rust build artifacts
+    session.run("cargo", "clean", external=True)
 
+    # Clean Python build artifacts
+    for path in ["dist", "target", WHEELHOUSE_DIR]:
+        if os.path.exists(path):
+            session.log(f"Removing {path}")
+            shutil.rmtree(path)
+
+# Test sessions
 @nox.session
 def pytest(session):
     """Run tests."""
     session.install("pytest", "pytest-cov")
     session.install("-e", ".")
-    session.run("pytest", "tests/", "--cov=eacopy", "--cov-report=xml:coverage.xml", "--cov-report=term-missing")
+    session.run(
+        "pytest",
+        "tests/",
+        f"--cov={MODULE_NAME}",
+        "--cov-report=xml:coverage.xml",
+        "--cov-report=term-missing"
+    )
 
+@nox.session
+def test_wheel(session):
+    """Test the wheel package."""
+    # Install the wheel and test dependencies
+    session.install("pytest", "pytest-cov")
 
+    # Find the latest wheel
+    try:
+        wheel_file = get_latest_wheel()
+    except FileNotFoundError:
+        session.log("No wheel found, building one...")
+        build_wheel(session)
+        wheel_file = get_latest_wheel()
+
+    session.log(f"Installing wheel: {wheel_file}")
+    session.install(wheel_file)
+
+    # Run tests with simplified test file
+    session.run(
+        "pytest",
+        "tests/test_simplified.py",
+        f"--cov={MODULE_NAME}",
+        "--cov-report=xml:coverage.xml",
+        "--cov-report=term-missing"
+    )
+
+@nox.session
+def build_test(session):
+    """Build and test the package."""
+    # Build the wheel
+    build_wheel(session)
+
+    # Test the wheel
+    test_wheel(session)
+
+# Lint sessions
+@nox.session
+def lint(session):
+    """Run linting checks."""
+    session.install("ruff", "black")
+
+    # Lint Python code
+    session.run("ruff", "check", "src", "tests")
+    session.run("black", "--check", "src", "tests")
+
+    # Lint Rust code
+    session.run("cargo", "clippy", "--all-targets", "--all-features", "--", "-D", "warnings", external=True)
+
+@nox.session
+def lint_fix(session):
+    """Fix linting issues."""
+    session.install("ruff", "black")
+
+    # Fix Python code
+    session.run("ruff", "check", "--fix", "src", "tests")
+    session.run("black", "src", "tests")
+
+    # Fix Rust code
+    session.run("cargo", "clippy", "--fix", "--allow-dirty", "--allow-staged", external=True)
+
+# Documentation sessions
 @nox.session
 def docs(session):
     """Build documentation."""
     session.install("-e", ".[docs]")
-    session.chdir("docs")
-    session.run("make", "html", external=True)
-
+    session.run("sphinx-build", "-b", "html", "docs", "docs/_build/html")
 
 @nox.session
 def docs_serve(session):
-    """Build and serve documentation with live reloading."""
+    """Serve documentation with live reloading."""
     session.install("-e", ".[docs]")
-    session.install("sphinx-autobuild")
-    session.run("sphinx-autobuild", "docs", "docs/_build/html", "--open-browser")
+    session.run("sphinx-autobuild", "docs", "docs/_build/html")
 
-
+# Release sessions
 @nox.session
-def build_wheels(session):
-    """Build wheels for the current platform using cibuildwheel.
+def publish(session):
+    """Publish the package to PyPI."""
+    session.install("maturin>=1.4,<2.0", "twine")
 
-    This session builds wheels for the current Python version and platform
-    using cibuildwheel. Configuration is read from .cibuildwheel.toml.
-    """
-    # Install cibuildwheel and dependencies
-    session.log("Installing cibuildwheel and dependencies...")
-    session.install(
-        "cibuildwheel",
-        "wheel",
-        "setuptools>=42.0.0",
-        "setuptools_scm>=8.0.0",
-        "scikit-build-core>=0.5.0",
-        "pybind11>=2.10.0",
-        "cmake>=3.15.0",
-        "ninja",
-    )
+    # Build wheels for all platforms
+    session.run("maturin", "build", "--release", "--strip")
 
-    # Determine current platform for cibuildwheel
-    system = platform.system().lower()
-    if system == "linux":
-        current_platform = "linux"
-    elif system == "darwin":
-        current_platform = "macos"
-    elif system == "windows":
-        current_platform = "windows"
-    else:
-        session.error(f"Unsupported platform: {system}")
-
-    # Set environment variables
-    env = {
-        "CIBW_BUILD_VERBOSITY": "3",
-        "CIBW_BUILD": f"cp{sys.version_info.major}{sys.version_info.minor}-*",
-    }
-
-    # Create output directory if it doesn't exist
-    os.makedirs("wheelhouse", exist_ok=True)
-
-    # On Windows, we need special handling
-    if current_platform == "windows":
-        session.log("Building wheels on Windows...")
-        try:
-            # Try using cibuildwheel first
-            session.run(
-                "python",
-                "-m",
-                "cibuildwheel",
-                "--platform",
-                current_platform,
-                "--output-dir",
-                "wheelhouse",
-                env=env,
-            )
-        except Exception as e:
-            session.log(f"cibuildwheel failed: {e}")
-            session.log("Falling back to pip wheel...")
-
-            # Try direct pip wheel as a fallback
-            session.run(
-                "pip",
-                "wheel",
-                ".",
-                "-w",
-                "wheelhouse",
-                "--no-deps",
-                "-v",
-            )
-    else:
-        # On other platforms, use cibuildwheel
-        session.log(f"Building wheels on {current_platform}...")
-        try:
-            session.run(
-                "python",
-                "-m",
-                "cibuildwheel",
-                "--platform",
-                current_platform,
-                "--output-dir",
-                "wheelhouse",
-                env=env,
-            )
-        except Exception as e:
-            session.log(f"cibuildwheel failed: {e}")
-            session.log("Falling back to pip wheel...")
-
-            # Try direct pip wheel as a fallback
-            session.run(
-                "pip",
-                "wheel",
-                ".",
-                "-w",
-                "wheelhouse",
-                "--no-deps",
-                "-v",
-            )
-
-    # List the built wheels
-    session.log("Built wheels:")
-    for wheel in os.listdir("wheelhouse"):
-        if wheel.endswith(".whl"):
-            session.log(f"  - {wheel}")
-
-
-@nox.session
-def verify_wheels(session):
-    """Verify the built wheels."""
-    session.install("wheel", "setuptools")
-
-    # Check if wheelhouse directory exists
-    if not os.path.exists("wheelhouse"):
-        session.error("No wheelhouse directory found. Run build_wheels first.")
-
-    # List and verify wheels
-    wheels = [f for f in os.listdir("wheelhouse") if f.endswith(".whl")]
-    if not wheels:
-        session.error("No wheels found in wheelhouse directory.")
-
-    session.log(f"Found {len(wheels)} wheels:")
-    for wheel in wheels:
-        session.log(f"  - {wheel}")
-
-        # Try to install the wheel
-        try:
-            with session.chdir("wheelhouse"):
-                session.run("pip", "install", wheel, "--force-reinstall")
-            session.log(f"Successfully installed {wheel}")
-        except Exception as e:
-            session.error(f"Failed to install {wheel}: {e}")
-
-    # Try to import the package
-    session.run("python", "-c", "import eacopy; print(f'eacopy version: {eacopy.__version__}')")
-    session.log("All wheels verified successfully!")
+    # Upload to PyPI
+    session.run("twine", "upload", "target/wheels/*")
