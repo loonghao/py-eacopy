@@ -49,7 +49,7 @@ brotli = "8.0"
 
 # Hashing for file deduplication
 blake3 = { version = "1.5", features = ["serde"], default-features = false }
-sha2 = "0.10"
+sha2 = "0.11"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
 # Serialization
