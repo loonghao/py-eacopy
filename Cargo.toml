@@ -84,7 +84,7 @@ indicatif = "0.18"
 
 # Configuration
 serde_yaml = "0.9"
-toml = "0.8"
+toml = "1.1"
 config = "0.15"
 
 # Cross-platform utilities
